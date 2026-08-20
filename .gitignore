@@ -238,6 +238,10 @@ ClientBin/
 ~$*
 *~
 *.dbmdl
+
+# Local Steam Deck engineering outputs
+build-deck/
+deck_tools/vulkan_image_probe
 *.dbproj.schemaview
 *.jfm
 *.pfx

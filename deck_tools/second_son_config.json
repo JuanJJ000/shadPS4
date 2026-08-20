@@ -1,0 +1,49 @@
+{
+  "General": {
+    "neo_mode": false,
+    "extra_dmem_in_mbytes": 0,
+    "extra_fmem_in_mbytes": 0,
+    "show_fps_counter": true,
+    "discord_rpc_enabled": false,
+    "shad_net_enabled": false
+  },
+  "Log": {
+    "append": false,
+    "enable": true,
+    "separate": true,
+    "size_limit": 268435456,
+    "skip_duplicate": true,
+    "sync": true
+  },
+  "GPU": {
+    "window_width": 1280,
+    "window_height": 720,
+    "internal_screen_width": 1280,
+    "internal_screen_height": 720,
+    "null_gpu": false,
+    "copy_gpu_buffers": true,
+    "readbacks_mode": 0,
+    "readback_linear_images_enabled": false,
+    "direct_memory_access_enabled": false,
+    "dump_shaders": false,
+    "patch_shaders": false,
+    "vblank_frequency": 60,
+    "full_screen": true,
+    "full_screen_mode": "Fullscreen",
+    "present_mode": "Mailbox",
+    "hdr_allowed": false,
+    "fsr_enabled": false,
+    "rcas_enabled": true,
+    "rcas_attenuation": 250
+  },
+  "Vulkan": {
+    "gpu_id": -1,
+    "renderdoc_enabled": false,
+    "vkvalidation_enabled": false,
+    "vkcrash_diagnostic_enabled": false,
+    "vkhost_markers": false,
+    "vkguest_markers": false,
+    "pipeline_cache_enabled": true,
+    "pipeline_cache_archived": false
+  }
+}
