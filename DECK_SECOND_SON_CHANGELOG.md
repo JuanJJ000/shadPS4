@@ -153,7 +153,6 @@ session.
 
 No Second Son runtime test has been performed yet. The package is validated and staged, the first
 fork RelWithDebInfo build and clean incremental rebuild both passed, and `shadps4 --help` exits
-successfully. The built binary SHA-256 is
-`b5c509c24d0943e65da73d001bf1466cc2a35323e33b353d25f78523e7769aa4`. The first launch will remain
-foreground-visible with MangoHud/Gamescope capture after the user's active retail inFAMOUS RPCS3
-session ends.
+successfully. The integrated renderer source is committed at `5f923293`; the run harness records the
+exact executable SHA-256 in every evidence bundle. The first launch will remain foreground-visible
+with MangoHud/Gamescope capture after the user's active retail inFAMOUS RPCS3 session ends.
