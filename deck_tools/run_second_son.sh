@@ -42,9 +42,10 @@ shad_user="${xdg_data}/shadPS4"
 run_stamp="$(date +%Y%m%d-%H%M%S)"
 run_dir="${data_root}/runs/${run_stamp}-${variant}"
 mkdir -p "${shad_user}" "${run_dir}/logs" "${run_dir}/screenshots"
-if [[ ! -f "${shad_user}/config.json" ]]; then
-  install -m 0644 "${repo_dir}/deck_tools/second_son_config.json" "${shad_user}/config.json"
-fi
+# Every A/B run starts from the same controlled global profile.  Second Son requires Precise
+# readbacks for gameplay lighting, particles, and its early graffiti interaction; stale profiles
+# with readbacks disabled make the comparison invalid.
+install -m 0644 "${repo_dir}/deck_tools/second_son_config.json" "${shad_user}/config.json"
 
 touch "${run_dir}/started.marker"
 ln -sfn "${run_dir}" "${data_root}/runs/current"

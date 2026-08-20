@@ -38,6 +38,10 @@ session.
    LRU cache. The buffer GC therefore performs no deletions even under critical memory pressure.
 6. The open upstream PR 4794 replaces a fixed 2 MiB command-copy buffer, which asserts when full,
    with stable chunked arenas to avoid both overflow and span invalidation.
+7. Current Second Son reports confirm that `readbacks_mode = 2` (Precise) is required for correct
+   gameplay lighting, particles, and the early graffiti interaction. Disabled readbacks produce a
+   dark scene and can softlock progression; Precise readbacks are slower but mandatory for the
+   correctness baseline.
 
 ## Planned changes
 
@@ -148,6 +152,8 @@ session.
 - Each completed run parses MangoHud's benchmark CSV with only the Python standard library and
   writes `performance-summary.txt` with sample count, mean/median/1%/0.1% FPS, frame-time tails,
   utilization, thermals, clocks, memory, and power columns when MangoHud provides them.
+- The controlled baseline and fork profiles now force Precise GPU readbacks on every launch, so a
+  stale disabled-readback profile cannot invalidate lighting, particle, or progression tests.
 
 ## Runtime results
 
