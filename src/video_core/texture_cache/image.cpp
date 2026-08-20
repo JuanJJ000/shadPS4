@@ -6,6 +6,7 @@
 #include "video_core/renderer_vulkan/liverpool_to_vk.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
+#include "video_core/renderer_vulkan/vma_usage.h"
 #include "video_core/texture_cache/blit_helper.h"
 #include "video_core/texture_cache/image.h"
 
@@ -113,6 +114,16 @@ void UniqueImage::Create(const vk::ImageCreateInfo& image_ci) {
     VkImage unsafe_image{};
     VkResult result = vmaCreateImage(allocator, &image_ci_unsafe, &alloc_info, &unsafe_image,
                                      &allocation, nullptr);
+    if (result != VK_SUCCESS) [[unlikely]] {
+        LOG_CRITICAL(Render_Vulkan,
+                     "Failed allocating image: format {}, extent {}x{}x{}, mip levels {}, layers "
+                     "{}, samples {}, usage {}, flags {}, error {}",
+                     vk::to_string(image_ci.format), image_ci.extent.width, image_ci.extent.height,
+                     image_ci.extent.depth, image_ci.mipLevels, image_ci.arrayLayers,
+                     vk::to_string(image_ci.samples), vk::to_string(image_ci.usage),
+                     vk::to_string(image_ci.flags), vk::to_string(vk::Result{result}));
+        Vulkan::LogVmaHeapBudgets(allocator);
+    }
     ASSERT_MSG(result == VK_SUCCESS, "Failed allocating image with error {}",
                vk::to_string(vk::Result{result}));
     image = vk::Image{unsafe_image};

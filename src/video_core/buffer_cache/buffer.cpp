@@ -8,6 +8,7 @@
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_platform.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
+#include "video_core/renderer_vulkan/vma_usage.h"
 
 #include <vk_mem_alloc.h>
 
@@ -86,6 +87,14 @@ void UniqueBuffer::Create(const vk::BufferCreateInfo& buffer_ci, MemoryUsage usa
     VkBuffer unsafe_buffer{};
     VkResult result = vmaCreateBuffer(allocator, &buffer_ci_unsafe, &alloc_ci, &unsafe_buffer,
                                       &allocation, out_alloc_info);
+    if (result != VK_SUCCESS) [[unlikely]] {
+        LOG_CRITICAL(Render_Vulkan,
+                     "Failed allocating {} buffer: size {} bytes, usage {}, VMA flags {:#x}, "
+                     "BDA {}, error {}",
+                     BufferTypeName(usage), buffer_ci.size, vk::to_string(buffer_ci.usage),
+                     static_cast<u32>(alloc_ci.flags), with_bda, vk::to_string(vk::Result{result}));
+        Vulkan::LogVmaHeapBudgets(allocator);
+    }
     ASSERT_MSG(result == VK_SUCCESS, "Failed allocating buffer with error {}",
                vk::to_string(vk::Result{result}));
     buffer = vk::Buffer{unsafe_buffer};
