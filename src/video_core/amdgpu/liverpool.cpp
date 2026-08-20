@@ -136,13 +136,27 @@ void Liverpool::Process(std::stop_token stoken) {
             }
         }
 
+        bool finished_submit = false;
         if (submit_done) {
+            // SubmitDone can race with the next frame's guest submission. Hold the copy boundary
+            // while confirming that no copied command buffer is queued, then rewind the arenas.
+            // This prevents both dangling spans and valid spans whose contents were overwritten
+            // before a suspended GPU coroutine consumed them.
+            std::scoped_lock copy_lock{copy_submit_mutex};
+            std::scoped_lock submit_lock{submit_mutex};
+            if (num_submits == 0) {
+                mapped_queues[GfxQueueId].ccb_arena.Reset();
+                mapped_queues[GfxQueueId].dcb_arena.Reset();
+                submit_done = false;
+                finished_submit = true;
+            }
+        }
+        if (finished_submit) {
             VideoCore::EndCapture();
             if (rasterizer) {
                 rasterizer->OnSubmit();
                 rasterizer->Flush();
             }
-            submit_done = false;
         }
 
         Platform::IrqC::Instance()->Signal(Platform::InterruptId::GpuIdle);
@@ -1177,32 +1191,18 @@ Liverpool::Task Liverpool::ProcessCompute(std::span<const u32> acb, u32 vqid) {
 
 Liverpool::CmdBuffer Liverpool::CopyCmdBuffers(std::span<const u32> dcb, std::span<const u32> ccb) {
     auto& queue = mapped_queues[GfxQueueId];
-    ASSERT_MSG(queue.dcb_buffer.capacity() >= queue.dcb_buffer_offset + dcb.size(),
-               "dcb copy buffer out of reserved space");
-    ASSERT_MSG(queue.ccb_buffer.capacity() >= queue.ccb_buffer_offset + ccb.size(),
-               "ccb copy buffer out of reserved space");
 
-    queue.dcb_buffer.resize(
-        std::max(queue.dcb_buffer.size(), queue.dcb_buffer_offset + dcb.size()));
-    queue.ccb_buffer.resize(
-        std::max(queue.ccb_buffer.size(), queue.ccb_buffer_offset + ccb.size()));
+    const std::span<u32> dcb_copy = queue.dcb_arena.Allocate(dcb.size());
+    const std::span<u32> ccb_copy = queue.ccb_arena.Allocate(ccb.size());
 
-    const u32 prev_dcb_buffer_offset = queue.dcb_buffer_offset;
-    const u32 prev_ccb_buffer_offset = queue.ccb_buffer_offset;
     if (!dcb.empty()) {
-        std::memcpy(queue.dcb_buffer.data() + queue.dcb_buffer_offset, dcb.data(),
-                    dcb.size_bytes());
-        queue.dcb_buffer_offset += dcb.size();
-        dcb = std::span<const u32>{queue.dcb_buffer.begin() + prev_dcb_buffer_offset,
-                                   queue.dcb_buffer.begin() + queue.dcb_buffer_offset};
+        std::memcpy(dcb_copy.data(), dcb.data(), dcb.size_bytes());
+        dcb = dcb_copy;
     }
 
     if (!ccb.empty()) {
-        std::memcpy(queue.ccb_buffer.data() + queue.ccb_buffer_offset, ccb.data(),
-                    ccb.size_bytes());
-        queue.ccb_buffer_offset += ccb.size();
-        ccb = std::span<const u32>{queue.ccb_buffer.begin() + prev_ccb_buffer_offset,
-                                   queue.ccb_buffer.begin() + queue.ccb_buffer_offset};
+        std::memcpy(ccb_copy.data(), ccb.data(), ccb.size_bytes());
+        ccb = ccb_copy;
     }
 
     return std::make_pair(dcb, ccb);
@@ -1210,8 +1210,12 @@ Liverpool::CmdBuffer Liverpool::CopyCmdBuffers(std::span<const u32> dcb, std::sp
 
 void Liverpool::SubmitGfx(std::span<const u32> dcb, std::span<const u32> ccb) {
     auto& queue = mapped_queues[GfxQueueId];
+    std::unique_lock copy_lock{copy_submit_mutex, std::defer_lock};
 
     if (EmulatorSettings.IsCopyGpuBuffers()) {
+        // Keep the arena allocation live until this task is visible through num_submits. The GPU
+        // thread takes the same lock before rewinding arenas at an idle SubmitDone boundary.
+        copy_lock.lock();
         std::tie(dcb, ccb) = CopyCmdBuffers(dcb, ccb);
     }
 
