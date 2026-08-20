@@ -862,15 +862,24 @@ void BufferCache::RunGarbageCollector() {
     int max_deletions = aggressive ? 64 : 32;
     const auto clean_up = [&](BufferId buffer_id) {
         if (max_deletions == 0) {
-            return;
+            return true;
         }
-        --max_deletions;
         Buffer& buffer = slot_buffers[buffer_id];
-        // InvalidateMemory(buffer.CpuAddr(), buffer.SizeBytes());
-        DownloadBufferMemory<true>(buffer, buffer.CpuAddr(), buffer.SizeBytes());
+
+        // GPU-written buffers need to be downloaded before eviction. The asynchronous download
+        // path cannot currently guarantee safe lifetime or ring capacity for a whole cached
+        // buffer, so retain those buffers until that path is made robust. CPU-authored buffers
+        // can be discarded safely because their authoritative contents remain in guest memory.
+        if (IsRegionGpuModified(buffer.CpuAddr(), buffer.SizeBytes())) {
+            return false;
+        }
+
+        --max_deletions;
         memory_tracker->MarkRegionAsCpuModified(buffer.CpuAddr(), buffer.SizeBytes());
         DeleteBuffer(buffer_id);
+        return false;
     };
+    lru_cache.ForEachItemBelow(gc_tick - ticks_to_destroy, clean_up);
 }
 
 void BufferCache::TouchBuffer(const Buffer& buffer) {
