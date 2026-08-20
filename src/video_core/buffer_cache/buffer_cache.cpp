@@ -4,6 +4,7 @@
 #include <algorithm>
 #include "common/alignment.h"
 #include "common/debug.h"
+#include "common/logging/log.h"
 #include "common/scope_exit.h"
 #include "core/memory.h"
 #include "video_core/amdgpu/liverpool.h"
@@ -13,6 +14,8 @@
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/texture_cache/texture_cache.h"
+
+#include <vk_mem_alloc.h>
 
 namespace VideoCore {
 
@@ -86,14 +89,13 @@ void BufferCache::ReadMemory(VAddr device_addr, u64 size, bool is_write) {
             std::max<VAddr>(Common::AlignDown(device_addr, WindowSize), buf_start);
         const VAddr window_end = std::min<VAddr>(
             std::max<VAddr>(window_start + WindowSize, device_addr + size), buf_end);
-        DownloadBufferMemory<false>(buffer, window_start, window_end - window_start);
+        DownloadBufferMemory(buffer, window_start, window_end - window_start);
         if (is_write) {
             memory_tracker->MarkRegionAsCpuModified(device_addr, size);
         }
     });
 }
 
-template <bool async>
 void BufferCache::DownloadBufferMemory(Buffer& buffer, VAddr device_addr, u64 size) {
     boost::container::small_vector<vk::BufferCopy, 1> copies;
     u64 total_size_bytes = 0;
@@ -120,6 +122,8 @@ void BufferCache::DownloadBufferMemory(Buffer& buffer, VAddr device_addr, u64 si
         return;
     }
     const auto [download, offset] = download_buffer.Map(total_size_bytes);
+    ASSERT_MSG(download != nullptr, "Buffer download of {} bytes exceeds the {} byte readback ring",
+               total_size_bytes, DownloadBufferSize);
     for (auto& copy : copies) {
         // Modify copies to have the staging offset in mind
         copy.dstOffset += offset;
@@ -128,22 +132,24 @@ void BufferCache::DownloadBufferMemory(Buffer& buffer, VAddr device_addr, u64 si
     scheduler.EndRendering();
     const auto cmdbuf = scheduler.CommandBuffer();
     cmdbuf.copyBuffer(buffer.buffer, download_buffer.Handle(), copies);
-    const auto write_data = [&]() {
+    const VAddr buffer_addr = buffer.CpuAddr();
+    const auto write_data = [this, copies = std::move(copies), buffer_addr, device_addr, size,
+                             download, offset, total_size_bytes]() {
+        if (!download_buffer.is_coherent) {
+            vmaInvalidateAllocation(instance.GetAllocator(), download_buffer.buffer.allocation,
+                                    offset, total_size_bytes);
+        }
         auto* memory = Core::Memory::Instance();
         for (const auto& copy : copies) {
-            const VAddr copy_device_addr = buffer.CpuAddr() + copy.srcOffset;
+            const VAddr copy_device_addr = buffer_addr + copy.srcOffset;
             const u64 dst_offset = copy.dstOffset - offset;
             memory->TryWriteBacking(std::bit_cast<u8*>(copy_device_addr), download + dst_offset,
                                     copy.size);
         }
         memory_tracker->UnmarkRegionAsGpuModified(device_addr, size);
     };
-    if constexpr (async) {
-        scheduler.DeferOperation(write_data);
-    } else {
-        scheduler.Finish();
-        write_data();
-    }
+    scheduler.Finish();
+    write_data();
 }
 
 void BufferCache::BindVertexBuffers(
@@ -860,26 +866,45 @@ void BufferCache::RunGarbageCollector() {
     const bool aggressive = total_used_memory >= critical_gc_memory;
     const u64 ticks_to_destroy = std::min<u64>(aggressive ? 80 : 160, gc_tick);
     int max_deletions = aggressive ? 64 : 32;
+    int deleted_count = 0;
+    int skipped_dirty_count = 0;
+    u64 deleted_bytes = 0;
+    bool downloaded_dirty_buffer = false;
     const auto clean_up = [&](BufferId buffer_id) {
         if (max_deletions == 0) {
             return true;
         }
         Buffer& buffer = slot_buffers[buffer_id];
 
-        // GPU-written buffers need to be downloaded before eviction. The asynchronous download
-        // path cannot currently guarantee safe lifetime or ring capacity for a whole cached
-        // buffer, so retain those buffers until that path is made robust. CPU-authored buffers
-        // can be discarded safely because their authoritative contents remain in guest memory.
         if (IsRegionGpuModified(buffer.CpuAddr(), buffer.SizeBytes())) {
-            return false;
+            // Keep normal-pressure collection stall-free. Under critical pressure, synchronously
+            // preserve at most one bounded dirty buffer per pass before eviction. Reserving 1 MiB
+            // below the ring capacity covers 64-byte packing alignment for fragmented 4 KiB
+            // tracker ranges.
+            constexpr u64 MaxGcDownloadSize = DownloadBufferSize - 1_MB;
+            if (!aggressive || downloaded_dirty_buffer || buffer.SizeBytes() > MaxGcDownloadSize) {
+                ++skipped_dirty_count;
+                return false;
+            }
+            DownloadBufferMemory(buffer, buffer.CpuAddr(), buffer.SizeBytes());
+            downloaded_dirty_buffer = true;
         }
 
         --max_deletions;
+        ++deleted_count;
+        deleted_bytes += buffer.SizeBytes();
         memory_tracker->MarkRegionAsCpuModified(buffer.CpuAddr(), buffer.SizeBytes());
         DeleteBuffer(buffer_id);
         return false;
     };
     lru_cache.ForEachItemBelow(gc_tick - ticks_to_destroy, clean_up);
+    if (deleted_count > 0 && (downloaded_dirty_buffer || gc_tick % 60 == 0)) {
+        LOG_INFO(Render_Vulkan,
+                 "Buffer GC: deleted {} buffers ({} bytes), skipped {} dirty buffers, usage {} / "
+                 "trigger {} / critical {} bytes",
+                 deleted_count, deleted_bytes, skipped_dirty_count, total_used_memory,
+                 trigger_gc_memory, critical_gc_memory);
+    }
 }
 
 void BufferCache::TouchBuffer(const Buffer& buffer) {
