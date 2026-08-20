@@ -145,6 +145,9 @@ session.
 - `deck_tools/install_second_son.sh` refuses to steal Gamescope focus while RPCS3 is running, then
   launches the isolated official v0.7 package installer visibly on display `:1` once the Deck is
   clear.
+- Each completed run parses MangoHud's benchmark CSV with only the Python standard library and
+  writes `performance-summary.txt` with sample count, mean/median/1%/0.1% FPS, frame-time tails,
+  utilization, thermals, clocks, memory, and power columns when MangoHud provides them.
 
 ## Runtime results
 

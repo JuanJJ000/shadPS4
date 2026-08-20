@@ -73,6 +73,8 @@ background_alpha=0.5
 autostart_log=1
 log_interval=100
 output_folder=${run_dir}
+benchmark_percentiles=97,AVG,1,0.1
+log_versioning
 permit_upload=0
 EOF
 
@@ -105,6 +107,8 @@ collect_results() {
     find "${shad_user}/screenshots" -maxdepth 1 -type f -newer "${run_dir}/started.marker" \
       -exec cp -t "${run_dir}/screenshots" -- {} + 2>/dev/null || true
   fi
+  python3 "${repo_dir}/deck_tools/summarize_mangohud.py" "${run_dir}" \
+    >"${run_dir}/performance-summary.txt" 2>&1 || true
   echo "Run evidence: ${run_dir}"
 }
 
