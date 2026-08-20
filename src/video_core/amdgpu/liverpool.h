@@ -3,8 +3,10 @@
 
 #pragma once
 
+#include <algorithm>
 #include <condition_variable>
 #include <coroutine>
+#include <deque>
 #include <exception>
 #include <mutex>
 #include <semaphore>
@@ -72,8 +74,6 @@ public:
 
     void SubmitDone() noexcept {
         std::scoped_lock lk{submit_mutex};
-        mapped_queues[GfxQueueId].ccb_buffer_offset = 0;
-        mapped_queues[GfxQueueId].dcb_buffer_offset = 0;
         submit_done = true;
         submit_cv.notify_one();
     }
@@ -122,10 +122,8 @@ public:
 
     void ReserveCopyBufferSpace() {
         GpuQueue& gfx_queue = mapped_queues[GfxQueueId];
-        std::scoped_lock lk(gfx_queue.m_access);
-        constexpr size_t GfxReservedSize = 2_MB >> 2;
-        gfx_queue.ccb_buffer.reserve(GfxReservedSize);
-        gfx_queue.dcb_buffer.reserve(GfxReservedSize);
+        gfx_queue.ccb_arena.Reserve();
+        gfx_queue.dcb_arena.Reserve();
     }
 
     inline ComputeProgram& GetCsRegs() {
@@ -186,12 +184,47 @@ private:
     void ProcessCommands();
     void Process(std::stop_token stoken);
 
+    struct CmdCopyArena {
+        // A guest command buffer is capped just below 4 MiB, so every valid individual buffer can
+        // fit in one chunk. Separate chunks keep previously returned spans stable as storage grows.
+        static constexpr size_t ChunkDwords = 4_MB >> 2;
+
+        std::mutex mtx{};
+        std::deque<std::vector<u32>> chunks{};
+        size_t active_chunk{};
+
+        std::span<u32> Allocate(size_t num_dwords) {
+            std::scoped_lock lk{mtx};
+            while (active_chunk < chunks.size() &&
+                   chunks[active_chunk].size() + num_dwords > chunks[active_chunk].capacity()) {
+                ++active_chunk;
+            }
+            if (active_chunk >= chunks.size()) {
+                chunks.emplace_back().reserve(std::max(num_dwords, ChunkDwords));
+            }
+            auto& chunk = chunks[active_chunk];
+            const size_t offset = chunk.size();
+            chunk.resize(offset + num_dwords);
+            return std::span<u32>{chunk.data() + offset, num_dwords};
+        }
+
+        void Reserve() {
+            Allocate(0);
+        }
+
+        void Reset() {
+            std::scoped_lock lk{mtx};
+            for (auto& chunk : chunks) {
+                chunk.clear();
+            }
+            active_chunk = 0;
+        }
+    };
+
     struct GpuQueue {
         std::mutex m_access{};
-        std::atomic<u32> dcb_buffer_offset;
-        std::atomic<u32> ccb_buffer_offset;
-        std::vector<u32> dcb_buffer;
-        std::vector<u32> ccb_buffer;
+        CmdCopyArena dcb_arena{};
+        CmdCopyArena ccb_arena{};
         std::queue<Task::Handle> submits{};
         ComputeProgram cs_state{};
     };
@@ -227,6 +260,8 @@ private:
     std::atomic<u32> num_commands{};
     std::atomic<bool> submit_done{};
     std::mutex submit_mutex;
+    // Serializes copied GFX submissions against arena rewind after the GPU queue drains.
+    std::mutex copy_submit_mutex;
     std::condition_variable_any submit_cv;
     std::queue<Common::UniqueFunction<void>> command_queue{};
     std::thread::id gpu_id;
