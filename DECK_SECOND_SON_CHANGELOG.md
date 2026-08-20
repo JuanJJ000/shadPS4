@@ -79,7 +79,7 @@ session.
 - Issue 4: Steam Deck Second Son playability and measurement milestone.
 - Issue 5: log failed Vulkan allocation context and live VMA heap budgets.
 - Draft PR 6: restore conservative buffer-cache LRU collection (branch
-  `fix/buffer-cache-gc`, fork only).
+  `fix/buffer-cache-gc`, fork only), updated through bounded dirty write-back commit `5a4acfe2`.
 - Branch `fix/gfx-command-copy-arena` pushed to the fork at commit `9724acc4`; draft PR creation is
   intentionally deferred to a later GitHub workflow turn.
 - Branch `fix/compressed-image-negotiation` pushed to the fork at commit `0c66aa0f`; draft PR
@@ -94,11 +94,15 @@ session.
 
 - Restored the missing `lru_cache.ForEachItemBelow(...)` traversal in
   `BufferCache::RunGarbageCollector()`.
-- The first implementation evicts only old CPU-authored buffers. GPU-written buffers remain cached
-  because the existing asynchronous download callback captures stack state by reference and a full
-  dirty buffer can exceed the fixed 32 MB download ring. This avoids enabling a latent use-after-free
-  or losing GPU-authored data while still reclaiming the common safely reproducible buffers.
-- Status: compiled and linked in the full RelWithDebInfo build; runtime validation pending.
+- Normal-pressure collection evicts only old CPU-authored buffers without introducing GPU stalls.
+- Under critical pressure, at most one old GPU-written buffer smaller than 31 MiB is synchronously
+  copied through the 32 MiB download ring and written back before eviction. The 1 MiB reserve covers
+  alignment overhead from fragmented 4 KiB tracker ranges; larger dirty buffers remain cached.
+- Removed the unused asynchronous callback whose stack-owned copy metadata could outlive its scope,
+  and invalidate non-coherent download memory after GPU completion before CPU reads.
+- Periodic/dirty-eviction logs record heap use, deletion count/bytes, and skipped dirty buffers.
+- Status: bounded dirty write-back compiled and linked after a clean incremental rebuild; runtime
+  validation pending.
 
 ### Exact compressed-image capability fallback
 
@@ -138,12 +142,15 @@ session.
 - When the known-good RPCS3 AppImage is active, the harness automatically starts the entire Flatpak
   build tree at nice level 15 and idle I/O priority so compiler children cannot compete at normal
   priority with gameplay.
+- `deck_tools/install_second_son.sh` refuses to steal Gamescope focus while RPCS3 is running, then
+  launches the isolated official v0.7 package installer visibly on display `:1` once the Deck is
+  clear.
 
 ## Runtime results
 
 No Second Son runtime test has been performed yet. The package is validated and staged, the first
 fork RelWithDebInfo build and clean incremental rebuild both passed, and `shadps4 --help` exits
 successfully. The built binary SHA-256 is
-`ebe20408247f74837d8cebc48d2dbf4a9594cd4a517ed64ea63e64a006939650`. The first launch will remain
+`b5c509c24d0943e65da73d001bf1466cc2a35323e33b353d25f78523e7769aa4`. The first launch will remain
 foreground-visible with MangoHud/Gamescope capture after the user's active retail inFAMOUS RPCS3
 session ends.
