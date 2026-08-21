@@ -35,6 +35,8 @@ INTEGER_FIELDS = {
     "copies",
     "downloaded_bytes",
     "no_downloads",
+    "site_window_kib",
+    "site_window_hits",
 }
 REQUIRED_FIELDS = {
     "requests",
@@ -76,6 +78,8 @@ def parse_intervals(text: str) -> list[dict[str, object]]:
             names = ", ".join(sorted(missing))
             raise ValueError(f"line {line_number}: missing readback fields: {names}")
         fields.setdefault("window_kib", 512)
+        fields.setdefault("site_window_kib", 0)
+        fields.setdefault("site_window_hits", 0)
         hot_match = re.search(r"\bhot=\[([^]]*)\]", body)
         fields["hot"] = [
             {"address": address.lower(), "requests": int(requests), "writes": int(writes)}
@@ -157,6 +161,7 @@ def summarize(intervals: list[dict[str, object]], tail_count: int) -> dict[str, 
             "copies",
             "downloaded_bytes",
             "no_downloads",
+            "site_window_hits",
         )
     }
     finish_total_ms = sum(float(interval["finish_total_ms"]) for interval in selected)
@@ -164,6 +169,9 @@ def summarize(intervals: list[dict[str, object]], tail_count: int) -> dict[str, 
     wall_total_ms = sum(float(interval.get("wall_ms", 0.0)) for interval in selected)
     requested_bytes = totals["requested_bytes"]
     requests = totals["requests"]
+    site_windows = sorted(
+        {int(interval["site_window_kib"]) for interval in selected if interval["site_window_kib"]}
+    )
     hot_pages: dict[str, dict[str, int]] = {}
     for interval in selected:
         for hot in interval["hot"]:
@@ -227,6 +235,7 @@ def summarize(intervals: list[dict[str, object]], tail_count: int) -> dict[str, 
         "intervals_selected": len(selected),
         "tail_count": tail_count,
         "window_kib": windows[0] if len(windows) == 1 else windows,
+        "site_window_kib": site_windows[0] if len(site_windows) == 1 else site_windows,
         **totals,
         "finish_total_ms": round(finish_total_ms, 3),
         "finish_avg_ms_per_request": round(finish_total_ms / requests, 6) if requests else 0.0,
@@ -256,6 +265,9 @@ def render_text(log_path: Path, result: dict[str, object]) -> str:
         f"log={log_path}",
         f"intervals={result['intervals_selected']}/{result['intervals_available']}",
         f"window_kib={window_text}",
+        "site_window_kib={} site_window_hits={}".format(
+            result["site_window_kib"] or 0, result["site_window_hits"]
+        ),
         f"requests={result['requests']} writes={result['writes']} reads={result['reads']}",
         f"requested_bytes={result['requested_bytes']} downloaded_bytes={result['downloaded_bytes']}",
         f"amplification={result['amplification']}x copies_per_request={result['copies_per_request']}",

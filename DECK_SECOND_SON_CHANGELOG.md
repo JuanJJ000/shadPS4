@@ -311,6 +311,60 @@ session.
 - This is still measurement only. The result supports a separate, opt-in A/B of a smaller
   readback window for the bounded memmove write site; it does not make that optimization here.
 
+### Site-specific precise-readback window
+
+- Issue 46 adds an explicit, opt-in selector for a smaller precise-readback window at one write
+  fault instruction. The emulator accepts only a nonzero guest PC paired with a power-of-two
+  window from 4 through 512 KiB; an absent, `off`, or invalid selector leaves every request on the
+  existing 512 KiB policy.
+- The first controlled candidate is `0x809b1dfe:64`, targeting only the dominant `rep movsq`
+  write site measured in issue 44. Reads, every other write site, synchronization, page
+  protection, tracker transitions, and the default configuration remain unchanged.
+- Interval diagnostics report both the configured site window and its exact hit count. The local
+  summarizer consumes those fields while treating older logs as selector-off, and the Deck
+  launcher records the selector and its source in each run.
+- This selector is test infrastructure until matched foreground control/candidate evidence proves
+  both correct rendering and better frame pacing. Downloaded-byte reduction alone is not an
+  acceptance result because a narrower window can create extra future faults and GPU waits.
+- Matched foreground runs used the exact `0c6ff39d` binary and the same cannery save. Both showed
+  correct lighting and Delsin, opened the main output as 48 kHz stereo, and exited with status 0.
+  Control measured 9.97 median FPS and 100.35 ms median frame time; the 64 KiB candidate measured
+  9.96 FPS and 100.40 ms. The settled final 600 samples also had the same 8.586 FPS median.
+- In the final eight counter intervals, the candidate applied the narrow window 506 times and cut
+  finish time from 3,575.905 to 2,490.485 ms (-30.4%). It nevertheless increased downloaded bytes
+  from 173,711,168 to 188,956,288 (+8.8%) and request rate from 62.133 to 89.851 per second
+  (+44.6%). The narrower site window moved work into more frequent faults instead of improving the
+  frame path.
+- The candidate fails the acceptance gate because median FPS/frame time did not improve and total
+  downloaded bytes increased. The external selector is restored to `off`; the 512 KiB default is
+  preserved, and this experimental branch is not promoted.
+
+### 256 KiB site-window midpoint
+
+- Issue 48 reuses the same disabled-by-default selector to test `0x809b1dfe:256`, halfway between
+  the rejected 64 KiB site window and the accepted 512 KiB control. The selector remains external;
+  no game identity or address is enabled in the emulator by default.
+- This is a separate foreground A/B, not a reinterpretation of issue 46. It asks whether retaining
+  more neighboring data can preserve part of the per-request saving without producing the 64 KiB
+  candidate's higher fault rate and downloaded-byte total.
+- The same acceptance gate applies: correct rendering/audio and a clean exit are necessary, while
+  a repeatable median FPS/frame-time improvement is required for promotion. The selector stays
+  `off` until that evidence exists.
+- Two matched foreground pairs used the exact `2178ab75` binary and the stationary cannery
+  right-stick tutorial scene. All four runs rendered the correctly lit scene, opened the 48 kHz
+  stereo main output, and exited with status 0. Candidate screenshots also preserved the visible
+  tutorial prompt and foreground geometry.
+- In the final 600 samples of pair one, median FPS improved 8.585 to 9.510 (+10.8%) and median
+  frame time fell 116.488 to 105.148 ms (-9.7%). The replicate improved 8.680 to 9.271 FPS
+  (+6.8%) and 115.204 to 107.863 ms (-6.4%). Across the two pairs, settled median FPS averaged
+  +8.8%, mean FPS +1.2%, 1% low +1.9%, median frame time -8.1%, and p95 frame time -3.1%.
+- The candidate reduced final-eight-interval downloaded bytes by 12.3% and 7.5%, and readback
+  finish time by 13.1% and 4.5%. Request rate rose 12.7% and 8.1%, but unlike the 64 KiB case it
+  did not erase the repeatable median gain.
+- The 256 KiB site window passes this bounded scene gate and can be promoted as an opt-in Second
+  Son profile after review and an exact merged-binary foreground run. This is a modest frame-pacing
+  improvement in one stationary scene, not a claim of real-time playability or broad game coverage.
+
 ## Runtime results
 
 - The legally dumped CUSA00223 package installs and launches from Steam Gaming Mode into foreground

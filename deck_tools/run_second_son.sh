@@ -89,6 +89,29 @@ elif [[ -r "${readback_window_file}" ]]; then
 else
   readback_window_kb="512"
 fi
+readback_write_site_window_file="${SECOND_SON_READBACK_WRITE_SITE_WINDOW_FILE:-${data_root}/readback-write-site-window.txt}"
+readback_write_site_window_source="default"
+if [[ -n "${SECOND_SON_READBACK_WRITE_SITE_WINDOW:-}" ]]; then
+  readback_write_site_window="${SECOND_SON_READBACK_WRITE_SITE_WINDOW}"
+  readback_write_site_window_source="environment"
+elif [[ -r "${readback_write_site_window_file}" ]]; then
+  IFS= read -r readback_write_site_window <"${readback_write_site_window_file}" || true
+  readback_write_site_window="${readback_write_site_window:-off}"
+  readback_write_site_window_source="${readback_write_site_window_file}"
+else
+  readback_write_site_window="off"
+fi
+case "${readback_write_site_window}" in
+  off) ;;
+  *)
+    if [[ ! "${readback_write_site_window}" =~ ^0[xX][0-9a-fA-F]+:(4|8|16|32|64|128|256|512)$ ]] ||
+       [[ "${readback_write_site_window}" =~ ^0[xX]0+: ]]; then
+      echo "Ignoring invalid precise write-site window '${readback_write_site_window}'; expected nonzero-hex-pc:4|8|16|32|64|128|256|512" >&2
+      readback_write_site_window="off"
+      readback_write_site_window_source="invalid-fallback"
+    fi
+    ;;
+esac
 gpu_performance_file="${SECOND_SON_GPU_PERFORMANCE_FILE:-${data_root}/gpu-performance-level.txt}"
 gpu_performance_source="default"
 if [[ -n "${SECOND_SON_GPU_PERFORMANCE_LEVEL:-}" ]]; then
@@ -199,6 +222,8 @@ EOF
   echo "precise_readback_stats_interval=${readback_stats_interval}"
   echo "precise_readback_window_kb=${readback_window_kb}"
   echo "precise_readback_window_source=${readback_window_source}"
+  echo "precise_readback_write_site_window=${readback_write_site_window}"
+  echo "precise_readback_write_site_window_source=${readback_write_site_window_source}"
   echo "sleepq_stats=${sleepq_stats}"
   echo "sleepq_stats_source=${sleepq_stats_source}"
   echo "sleepq_stats_interval=${sleepq_stats_interval}"
@@ -463,6 +488,7 @@ XDG_DATA_HOME="${xdg_data}" MANGOHUD_CONFIGFILE="${mangohud_config}" \
   SHADPS4_PRECISE_READBACK_STATS="${SHADPS4_PRECISE_READBACK_STATS:-${readback_stats}}" \
   SHADPS4_PRECISE_READBACK_STATS_INTERVAL="${SHADPS4_PRECISE_READBACK_STATS_INTERVAL:-${readback_stats_interval}}" \
   SHADPS4_PRECISE_READBACK_WINDOW_KB="${SHADPS4_PRECISE_READBACK_WINDOW_KB:-${readback_window_kb}}" \
+  SHADPS4_PRECISE_READBACK_WRITE_SITE_WINDOW="${SHADPS4_PRECISE_READBACK_WRITE_SITE_WINDOW:-${readback_write_site_window}}" \
   SHADPS4_SLEEPQ_STATS="${SHADPS4_SLEEPQ_STATS:-${sleepq_stats}}" \
   SHADPS4_SLEEPQ_STATS_INTERVAL="${SHADPS4_SLEEPQ_STATS_INTERVAL:-${sleepq_stats_interval}}" \
   "${command[@]}" 2>&1 | tee "${run_dir}/console.log"
