@@ -347,6 +347,11 @@ struct DynamicState {
 
 class Scheduler {
 public:
+    struct FinishTiming {
+        u64 submit_nanoseconds{};
+        u64 wait_nanoseconds{};
+    };
+
     explicit Scheduler(const Instance& instance);
     ~Scheduler();
 
@@ -360,6 +365,10 @@ public:
 
     /// Sends the current execution context to the GPU and waits for it to complete.
     void Finish();
+
+    /// Sends the current execution context to the GPU, waits for completion, and reports how the
+    /// synchronous stall was divided between submission and the timeline wait.
+    [[nodiscard]] FinishTiming FinishWithTiming();
 
     /// Waits for the given tick to trigger on the GPU.
     void Wait(u64 tick);

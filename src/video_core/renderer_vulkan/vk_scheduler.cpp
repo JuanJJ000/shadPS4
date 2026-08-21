@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: Copyright 2025 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <chrono>
+
 #include "common/assert.h"
 #include "common/debug.h"
 #include "common/thread.h"
@@ -107,6 +109,25 @@ void Scheduler::Finish() {
     SubmitInfo info{};
     SubmitExecution(info);
     Wait(presubmit_tick);
+}
+
+Scheduler::FinishTiming Scheduler::FinishWithTiming() {
+    const auto submit_started = std::chrono::steady_clock::now();
+    const u64 presubmit_tick = CurrentTick();
+    SubmitInfo info{};
+    SubmitExecution(info);
+    const auto submit_finished = std::chrono::steady_clock::now();
+    Wait(presubmit_tick);
+    const auto wait_finished = std::chrono::steady_clock::now();
+
+    return FinishTiming{
+        .submit_nanoseconds = static_cast<u64>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(submit_finished - submit_started)
+                .count()),
+        .wait_nanoseconds = static_cast<u64>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(wait_finished - submit_finished)
+                .count()),
+    };
 }
 
 void Scheduler::Wait(u64 tick) {
