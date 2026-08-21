@@ -339,6 +339,18 @@ session.
   downloaded bytes increased. The external selector is restored to `off`; the 512 KiB default is
   preserved, and this experimental branch is not promoted.
 
+### 256 KiB site-window midpoint
+
+- Issue 48 reuses the same disabled-by-default selector to test `0x809b1dfe:256`, halfway between
+  the rejected 64 KiB site window and the accepted 512 KiB control. The selector remains external;
+  no game identity or address is enabled in the emulator by default.
+- This is a separate foreground A/B, not a reinterpretation of issue 46. It asks whether retaining
+  more neighboring data can preserve part of the per-request saving without producing the 64 KiB
+  candidate's higher fault rate and downloaded-byte total.
+- The same acceptance gate applies: correct rendering/audio and a clean exit are necessary, while
+  a repeatable median FPS/frame-time improvement is required for promotion. The selector stays
+  `off` until that evidence exists.
+
 ## Runtime results
 
 - The legally dumped CUSA00223 package installs and launches from Steam Gaming Mode into foreground
