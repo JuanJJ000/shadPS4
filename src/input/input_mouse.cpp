@@ -22,6 +22,7 @@ extern std::list<std::pair<InputEvent, bool>> pressed_keys;
 int mouse_joystick_binding = 0;
 float mouse_deadzone_offset = 0.5, mouse_speed = 1, mouse_speed_offset = 0.1250;
 bool mouse_gyro_roll_mode = false;
+float mouse_gyro_pitch = 0.0f, mouse_gyro_roll = 0.0f;
 Uint32 mouse_polling_id = 0;
 MouseMode mouse_mode = MouseMode::Off;
 
@@ -31,6 +32,10 @@ bool ToggleMouseModeTo(MouseMode m) {
     if (mouse_mode == m) {
         mouse_mode = MouseMode::Off;
     } else {
+        if (m == MouseMode::Gyro) {
+            mouse_gyro_pitch = 0.0f;
+            mouse_gyro_roll = 0.0f;
+        }
         mouse_mode = m;
     }
     return mouse_mode == m;
@@ -85,16 +90,29 @@ void EmulateJoystick(GameController* controller, u32 interval) {
     }
 }
 
-constexpr float constant_down_accel[3] = {0.0f, 9.81f, 0.0f};
 void EmulateGyro(GameController* controller, u32 interval) {
     float d_x = 0, d_y = 0;
     SDL_GetRelativeMouseState(&d_x, &d_y);
-    controller->UpdateAcceleration(constant_down_accel);
     float gyro_from_mouse[3] = {-d_y / 100, -d_x / 100, 0.0f};
     if (mouse_gyro_roll_mode) {
         gyro_from_mouse[1] = 0.0f;
         gyro_from_mouse[2] = -d_x / 100;
+        mouse_gyro_roll = std::clamp(mouse_gyro_roll + gyro_from_mouse[2], -1.5707963f, 1.5707963f);
+    } else {
+        mouse_gyro_pitch =
+            std::clamp(mouse_gyro_pitch + gyro_from_mouse[0], -1.5707963f, 1.5707963f);
     }
+
+    // Mouse gyro emulation also needs a gravity vector that follows the virtual controller's
+    // orientation. Games which ask the player to hold the controller sideways use acceleration,
+    // not angular velocity, to validate the pose.
+    const float cos_pitch = std::cos(mouse_gyro_pitch);
+    const float accel_from_mouse[3] = {
+        -std::sin(mouse_gyro_roll) * cos_pitch * 9.81f,
+        std::cos(mouse_gyro_roll) * cos_pitch * 9.81f,
+        std::sin(mouse_gyro_pitch) * 9.81f,
+    };
+    controller->UpdateAcceleration(accel_from_mouse);
     controller->UpdateGyro(gyro_from_mouse);
 }
 

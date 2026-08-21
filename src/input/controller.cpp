@@ -104,17 +104,72 @@ void GameController::Axis(Input::Axis axis, int value, bool smooth) {
     std::lock_guard lock{m_state_mutex};
     const u64 timestamp = Libraries::Kernel::sceKernelGetProcessTime();
     m_state.OnAxis(axis, value, timestamp, smooth);
+    if (axis == Input::Axis::TriggerRight) {
+        if (motion_override == 3 && value > 0) {
+            motion_override = 4;
+        } else if (motion_override == 4 && value == 0) {
+            motion_override = 0;
+        }
+    }
     PushStateLocked(timestamp);
 }
 
 void GameController::UpdateGyro(const float gyro[3]) {
     std::lock_guard lock{m_state_mutex};
-    std::memcpy(gyro_buf, gyro, sizeof(gyro_buf));
+    if (motion_override == 2) {
+        const float direction =
+            ((Libraries::Kernel::sceKernelGetProcessTime() / 100000) & 1) != 0 ? 1.0f : -1.0f;
+        const float shake_gyro[3] = {0.0f, 0.0f, direction * 3.0f};
+        std::memcpy(gyro_buf, shake_gyro, sizeof(gyro_buf));
+    } else if (motion_override == 3 || motion_override == 4) {
+        const float stick_x =
+            (128.0f - m_state.axes[static_cast<int>(Input::Axis::RightX)]) / 127.0f;
+        const float stick_y =
+            (128.0f - m_state.axes[static_cast<int>(Input::Axis::RightY)]) / 127.0f;
+        const float time = Libraries::Kernel::sceKernelGetProcessTime() / 1'000'000.0f;
+        const bool auto_sweep =
+            motion_override == 4 && std::abs(stick_x) < 0.05f && std::abs(stick_y) < 0.05f;
+        const float aim_gyro[3] = {
+            gyro[0] + stick_y * 0.6f + (auto_sweep ? std::sin(time * 1.4f) * 0.45f : 0.0f),
+            gyro[1] + stick_x * 0.18f + (auto_sweep ? std::sin(time * 0.8f) * 0.08f : 0.0f),
+            gyro[2] + stick_y * 0.6f + (auto_sweep ? std::cos(time * 1.1f) * 0.45f : 0.0f),
+        };
+        std::memcpy(gyro_buf, aim_gyro, sizeof(gyro_buf));
+    } else {
+        std::memcpy(gyro_buf, gyro, sizeof(gyro_buf));
+    }
 }
 
 void GameController::UpdateAcceleration(const float acceleration[3]) {
     std::lock_guard lock{m_state_mutex};
-    std::memcpy(accel_buf, acceleration, sizeof(accel_buf));
+    if (motion_override == -1 || motion_override == 1) {
+        const float sideways_accel[3] = {motion_override * 9.81f, 0.0f, 0.0f};
+        std::memcpy(accel_buf, sideways_accel, sizeof(accel_buf));
+    } else if (motion_override == 2) {
+        const float direction =
+            ((Libraries::Kernel::sceKernelGetProcessTime() / 100000) & 1) != 0 ? 1.0f : -1.0f;
+        const float shake_accel[3] = {-9.81f + direction * 30.0f, 0.0f, 0.0f};
+        std::memcpy(accel_buf, shake_accel, sizeof(accel_buf));
+    } else if (motion_override == 3 || motion_override == 4) {
+        const float sideways_accel[3] = {-9.81f, 0.0f, 0.0f};
+        std::memcpy(accel_buf, sideways_accel, sizeof(accel_buf));
+    } else {
+        std::memcpy(accel_buf, acceleration, sizeof(accel_buf));
+    }
+}
+
+void GameController::SetMotionOverride(s8 mode) {
+    std::lock_guard lock{m_state_mutex};
+    // After a synthetic rattle, temporarily translate the right stick into gyro motion. This lets
+    // a handheld controller cover a motion-only stencil while the right trigger is held, then
+    // restores ordinary right-stick behavior as soon as the trigger is released.
+    if (motion_override == 2 && mode == 0) {
+        m_state.orientation = {0.0f, 0.0f, 0.0f, 1.0f};
+        m_last_orientation_update = 0;
+        motion_override = 3;
+    } else {
+        motion_override = mode;
+    }
 }
 
 void GameController::PollState() {
