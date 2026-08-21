@@ -422,6 +422,26 @@ session.
   buffers are therefore technically possible but may trade readback-copy cost for slower GPU
   access. No emulator behavior changes in this issue.
 
+### External host-memory selective benchmark
+
+- Issue 63 extends only the standalone probe. It compares a device-local GPU fill followed by a
+  copy into host-cached readback memory against a GPU fill of imported coherent host memory with
+  direct CPU visibility. It does not hook BufferCache, identify the game, or alter emulator
+  behavior.
+- Each 64, 256, and 512 KiB size receives ten warmups and 200 measured samples per mode. Alternating
+  `ABBA`/`BAAB` order balances both time position and same-mode adjacency; every fill is checked
+  across its entire requested range before the sample is accepted. Vulkan timestamps isolate GPU
+  fill time, while wall time measures queue submission through fence completion.
+- Five validation-layer replicates all passed without a validation message. Across those replicates,
+  the median direct-import wall-time change was -9.697% at 64 KiB, -14.396% at 256 KiB, and
+  -17.906% at 512 KiB. Five normal-layer replicates reported -10.600%, -16.191%, and -20.570%
+  respectively.
+- Imported-memory GPU-fill median time was never higher in the 30 size/replicate comparisons; its
+  change ranged from unchanged to 2.564% lower at the timer's 40 ns resolution. This synthetic
+  result clears a narrow, opt-in runtime-prototype gate, but it is not a gameplay, FPS, or full
+  BufferCache result. Foreground correctness and performance A/B remain mandatory before any
+  runtime path can be accepted.
+
 ## Runtime results
 
 - The legally dumped CUSA00223 package installs and launches from Steam Gaming Mode into foreground
