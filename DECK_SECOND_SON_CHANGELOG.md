@@ -350,6 +350,20 @@ session.
 - The same acceptance gate applies: correct rendering/audio and a clean exit are necessary, while
   a repeatable median FPS/frame-time improvement is required for promotion. The selector stays
   `off` until that evidence exists.
+- Two matched foreground pairs used the exact `2178ab75` binary and the stationary cannery
+  right-stick tutorial scene. All four runs rendered the correctly lit scene, opened the 48 kHz
+  stereo main output, and exited with status 0. Candidate screenshots also preserved the visible
+  tutorial prompt and foreground geometry.
+- In the final 600 samples of pair one, median FPS improved 8.585 to 9.510 (+10.8%) and median
+  frame time fell 116.488 to 105.148 ms (-9.7%). The replicate improved 8.680 to 9.271 FPS
+  (+6.8%) and 115.204 to 107.863 ms (-6.4%). Across the two pairs, settled median FPS averaged
+  +8.8%, mean FPS +1.2%, 1% low +1.9%, median frame time -8.1%, and p95 frame time -3.1%.
+- The candidate reduced final-eight-interval downloaded bytes by 12.3% and 7.5%, and readback
+  finish time by 13.1% and 4.5%. Request rate rose 12.7% and 8.1%, but unlike the 64 KiB case it
+  did not erase the repeatable median gain.
+- The 256 KiB site window passes this bounded scene gate and can be promoted as an opt-in Second
+  Son profile after review and an exact merged-binary foreground run. This is a modest frame-pacing
+  improvement in one stationary scene, not a claim of real-time playability or broad game coverage.
 
 ## Runtime results
 
