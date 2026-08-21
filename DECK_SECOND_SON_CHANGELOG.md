@@ -256,6 +256,17 @@ session.
 - This selector is test infrastructure, not an accepted performance change. A matched foreground
   control/candidate result must pass the acceptance gate in issue 39 before the candidate can be
   selected.
+- Matched foreground evidence rejected the CPU-3 candidate. The `0,1,6,7` control measured 9.91
+  median FPS, 100.92 ms median frame time, and 3,926.670 ms of worker-owned off-CPU hold time in
+  the final eight intervals. The `0,1,3,6,7` candidate cut worker-owned off-CPU hold time to
+  1,459.799 ms but fell to 8.57 median FPS and 116.63 ms median frame time.
+- The candidate therefore improved the lock diagnostic while making gameplay 13.5% slower by
+  median FPS. CPU 3 is the SMT sibling of the CPU-2 GPU communication thread, so GPU-side sibling
+  competition is the likely tradeoff; that explanation is an inference, not a directly measured
+  cause.
+- The external selector is restored to `0,1,6,7`, sleep-queue statistics are disabled, and the
+  launcher retains the safe four-CPU default. The selector remains useful for future controlled
+  tests without changing the accepted runtime policy.
 
 ## Runtime results
 
