@@ -104,6 +104,8 @@ session.
   hybrid replacements are rejected because they reduced gameplay speed despite lowering CPU use.
 - Issue 57 tracks a behavior-neutral write-discard eligibility probe for the dominant Second Son
   `rep movsq` readback site. It must prove exact dirty-byte coverage before any copy can be skipped.
+- Issue 59 tracks the one-commit upstream sync that corrects an out-of-bounds controller-combo
+  array write while preserving all fork-only Steam Deck work.
 
 ## Local code changes
 
@@ -207,6 +209,13 @@ session.
   launched the selected Play button from the visible Gaming Mode library.
 - The shortcut uses the isolated fork profile and autosave. It does not replace, modify, or launch
   the preserved RPCS3/inFAMOUS 1 installation.
+
+### Upstream controller-input safety sync
+
+- The fork incorporated upstream commit `500f4137`, which corrects the alternate two-key combo path
+  from `keys[3]` to the valid final element `keys[2]` of a three-element array.
+- The ancestry merge was conflict-free and changed only that one index. All fork-only controller
+  pose helpers and Steam Deck mappings remain intact; the full Deck build passes.
 
 ### Steam Deck CPU topology
 
