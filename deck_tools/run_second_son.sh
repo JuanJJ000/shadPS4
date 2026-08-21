@@ -6,6 +6,8 @@ repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 game_root="${SECOND_SON_ROOT:-/home/deck/Games/shadPS4-games/CUSA00223}"
 eboot="${SECOND_SON_EBOOT:-${game_root}/eboot.bin}"
 data_root="${SECOND_SON_DATA_ROOT:-/home/deck/Games/shadPS4-second-son}"
+source "${repo_dir}/deck_tools/deck_runtime.sh"
+deck_runtime_detect
 
 case "${variant}" in
   baseline)
@@ -94,6 +96,7 @@ EOF
   uname -a
   free -h
   swapon --show
+  deck_runtime_print
   if [[ "${variant}" == "fork" ]]; then
     git -C "${repo_dir}" rev-parse HEAD
     git -C "${repo_dir}" status --short --branch
@@ -110,6 +113,10 @@ apply_deck_cpu_affinity() {
   # The watcher runs helper binaries, not the game. Steam's mixed-architecture overlay preload
   # produces an ELF-class warning for each helper invocation, so keep it out of this subshell.
   unset LD_PRELOAD
+  if [[ "${SHADPS4_STEAM_DECK}" != "1" ]]; then
+    echo "Steam Deck not detected; leaving scheduler defaults"
+    return
+  fi
   if [[ ! -x /usr/bin/taskset || ! -r /sys/devices/system/cpu/cpu7/topology/thread_siblings_list ]]; then
     echo "Deck CPU affinity unavailable; leaving scheduler defaults"
     return
@@ -215,10 +222,7 @@ trap 'status=$?; trap - EXIT HUP INT TERM; collect_results "${status}"' EXIT
 launch=(mangohud "${binary}" --game "${eboot}" --same-process --fullscreen true --show-fps
         --config-global)
 
-desktop_name="${XDG_CURRENT_DESKTOP:-}"
-outer_gamescope_socket="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/gamescope-0"
-if [[ -n "${STEAM_GAMEPADUI:-}" || "${desktop_name,,}" == *gamescope* ||
-      -S "${outer_gamescope_socket}" ]]; then
+if [[ "${SHADPS4_GAMESCOPE}" == "1" ]]; then
   # Agent-launched commands do not inherit Gaming Mode's display variables. The game Xwayland is
   # :1 in the Steam Deck Gamescope session, and using it also permits scripted screenshot hotkeys.
   export DISPLAY="${DISPLAY:-:1}"
