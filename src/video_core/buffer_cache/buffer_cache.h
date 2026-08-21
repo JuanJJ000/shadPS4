@@ -188,7 +188,8 @@ private:
 
     void RecordPreciseReadbackStats(VAddr device_addr, u64 size, bool is_write,
                                     const Common::FaultContext& fault_context,
-                                    u64 outstanding_depth, const ReadbackDownloadSample& sample);
+                                    u64 request_window_size, u64 outstanding_depth,
+                                    const ReadbackDownloadSample& sample);
 
     void LogPreciseReadbackStats();
 
@@ -271,6 +272,8 @@ private:
     bool precise_readback_stats_enabled{};
     u64 precise_readback_stats_interval{128};
     u64 precise_readback_window_size{512_KB};
+    VAddr precise_readback_write_site_pc{};
+    u64 precise_readback_write_site_window_size{};
     u64 precise_readback_interval_started_nanoseconds{};
     u64 precise_readback_sequence{};
     std::atomic<u64> precise_readback_outstanding{};
@@ -289,6 +292,7 @@ private:
     u64 precise_readback_submit_nanoseconds{};
     u64 precise_readback_wait_nanoseconds{};
     u64 precise_readback_max_finish_nanoseconds{};
+    u64 precise_readback_write_site_window_hits{};
     std::array<ReadbackHotPage, ReadbackStatsHotPageCount> precise_readback_hot_pages{};
     std::array<ReadbackHotFaultSite, ReadbackStatsHotPageCount> precise_readback_hot_fault_sites{};
 };

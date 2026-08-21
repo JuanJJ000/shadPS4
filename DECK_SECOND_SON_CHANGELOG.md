@@ -311,6 +311,22 @@ session.
 - This is still measurement only. The result supports a separate, opt-in A/B of a smaller
   readback window for the bounded memmove write site; it does not make that optimization here.
 
+### Site-specific precise-readback window
+
+- Issue 46 adds an explicit, opt-in selector for a smaller precise-readback window at one write
+  fault instruction. The emulator accepts only a nonzero guest PC paired with a power-of-two
+  window from 4 through 512 KiB; an absent, `off`, or invalid selector leaves every request on the
+  existing 512 KiB policy.
+- The first controlled candidate is `0x809b1dfe:64`, targeting only the dominant `rep movsq`
+  write site measured in issue 44. Reads, every other write site, synchronization, page
+  protection, tracker transitions, and the default configuration remain unchanged.
+- Interval diagnostics report both the configured site window and its exact hit count. The local
+  summarizer consumes those fields while treating older logs as selector-off, and the Deck
+  launcher records the selector and its source in each run.
+- This selector is test infrastructure until matched foreground control/candidate evidence proves
+  both correct rendering and better frame pacing. Downloaded-byte reduction alone is not an
+  acceptance result because a narrower window can create extra future faults and GPU waits.
+
 ## Runtime results
 
 - The legally dumped CUSA00223 package installs and launches from Steam Gaming Mode into foreground

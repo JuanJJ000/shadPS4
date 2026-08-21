@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
+#include <string_view>
 #include "common/alignment.h"
 #include "common/debug.h"
 #include "common/logging/log.h"
@@ -79,6 +80,24 @@ BufferCache::BufferCache(const Vulkan::Instance& instance_, Vulkan::Scheduler& s
                         window_kib);
         }
     }
+    if (const char* site_window = std::getenv("SHADPS4_PRECISE_READBACK_WRITE_SITE_WINDOW")) {
+        char* separator = nullptr;
+        const auto parsed_pc = std::strtoull(site_window, &separator, 0);
+        char* end = nullptr;
+        const auto parsed_window =
+            separator != nullptr && *separator == ':' ? std::strtoull(separator + 1, &end, 10) : 0;
+        if (parsed_pc != 0 && separator != site_window && *separator == ':' &&
+            end != separator + 1 && *end == '\0' && parsed_window >= 4 && parsed_window <= 512 &&
+            (parsed_window & (parsed_window - 1)) == 0) {
+            precise_readback_write_site_pc = parsed_pc;
+            precise_readback_write_site_window_size = parsed_window * 1_KB;
+        } else if (site_window[0] != '\0' && std::string_view{site_window} != "off") {
+            LOG_WARNING(Render_Vulkan,
+                        "Ignoring invalid precise write-site window '{}'; expected "
+                        "<nonzero-pc>:<power-of-two-KiB-from-4-through-512>",
+                        site_window);
+        }
+    }
     if (precise_readback_stats_enabled) {
         precise_readback_interval_started_nanoseconds = SteadyClockNanoseconds();
         LOG_INFO(Render_Vulkan,
@@ -88,6 +107,10 @@ BufferCache::BufferCache(const Vulkan::Instance& instance_, Vulkan::Scheduler& s
     } else if (readback_window_overridden) {
         LOG_INFO(Render_Vulkan, "Precise readback window set to {} KiB",
                  precise_readback_window_size / 1_KB);
+    }
+    if (precise_readback_write_site_pc != 0) {
+        LOG_INFO(Render_Vulkan, "Precise write-site window enabled for guest PC {:#x}: {} KiB",
+                 precise_readback_write_site_pc, precise_readback_write_site_window_size / 1_KB);
     }
 
     // Set up garbage collection parameters
@@ -125,12 +148,16 @@ void BufferCache::InvalidateMemory(VAddr device_addr, u64 size,
 
 void BufferCache::ReadMemory(VAddr device_addr, u64 size, bool is_write,
                              Common::FaultContext fault_context) {
+    const u64 request_window_size = precise_readback_write_site_pc != 0 && is_write &&
+                                            fault_context.rip == precise_readback_write_site_pc
+                                        ? precise_readback_write_site_window_size
+                                        : precise_readback_window_size;
     const u64 outstanding_depth =
         precise_readback_stats_enabled
             ? precise_readback_outstanding.fetch_add(1, std::memory_order_relaxed) + 1
             : 0;
     liverpool->SendCommand<true>([this, device_addr, size, is_write, fault_context,
-                                  outstanding_depth] {
+                                  request_window_size, outstanding_depth] {
         SCOPE_EXIT {
             if (outstanding_depth != 0) {
                 precise_readback_outstanding.fetch_sub(1, std::memory_order_relaxed);
@@ -146,10 +173,9 @@ void BufferCache::ReadMemory(VAddr device_addr, u64 size, bool is_write,
             const VAddr intersection_start = std::max(device_addr, buffer_start);
             const VAddr intersection_end = std::min(device_addr_end, buffer_end);
             const VAddr window_start = std::max<VAddr>(
-                Common::AlignDown(intersection_start, precise_readback_window_size), buffer_start);
+                Common::AlignDown(intersection_start, request_window_size), buffer_start);
             const VAddr window_end = std::min<VAddr>(
-                std::max<VAddr>(window_start + precise_readback_window_size, intersection_end),
-                buffer_end);
+                std::max<VAddr>(window_start + request_window_size, intersection_end), buffer_end);
             const auto sample = DownloadBufferMemory(
                 buffer, window_start, window_end - window_start, precise_readback_stats_enabled);
             request_sample.bytes += sample.bytes;
@@ -164,14 +190,14 @@ void BufferCache::ReadMemory(VAddr device_addr, u64 size, bool is_write,
         }
         if (precise_readback_stats_enabled) {
             RecordPreciseReadbackStats(device_addr, size, is_write, fault_context,
-                                       outstanding_depth, request_sample);
+                                       request_window_size, outstanding_depth, request_sample);
         }
     });
 }
 
 void BufferCache::RecordPreciseReadbackStats(VAddr device_addr, u64 size, bool is_write,
                                              const Common::FaultContext& fault_context,
-                                             u64 outstanding_depth,
+                                             u64 request_window_size, u64 outstanding_depth,
                                              const ReadbackDownloadSample& sample) {
     precise_readback_sequence++;
     precise_readback_requests++;
@@ -190,6 +216,10 @@ void BufferCache::RecordPreciseReadbackStats(VAddr device_addr, u64 size, bool i
     precise_readback_wait_nanoseconds += sample.wait_nanoseconds;
     precise_readback_max_finish_nanoseconds =
         std::max(precise_readback_max_finish_nanoseconds, sample.finish_nanoseconds);
+    precise_readback_write_site_window_hits +=
+        precise_readback_write_site_pc != 0 && is_write &&
+        fault_context.rip == precise_readback_write_site_pc &&
+        request_window_size == precise_readback_write_site_window_size;
 
     const VAddr page_address = Common::AlignDown(device_addr, ReadbackStatsPageSize);
     auto page = std::ranges::find_if(
@@ -350,41 +380,42 @@ void BufferCache::LogPreciseReadbackStats() {
                                      ? static_cast<double>(precise_readback_downloaded_bytes) /
                                            static_cast<double>(precise_readback_requested_bytes)
                                      : 0.0;
-    LOG_INFO(Render_Vulkan,
-             "Precise readback stats: window_kib={} requests={} writes={} reads={} "
-             "bounded_repeats={} "
-             "tracked_pages={} requested_bytes={} download_calls={} copies={} downloaded_bytes={} "
-             "no_downloads={} finish_total_ms={:.3f} finish_avg_ms={:.3f} finish_max_ms={:.3f} "
-             "submit_total_ms={:.3f} wait_total_ms={:.3f} submit_share_pct={:.1f} "
-             "wait_share_pct={:.1f} queued_requests={} avg_outstanding_depth={:.2f} "
-             "max_outstanding_depth={} wall_ms={:.3f} request_rate={:.1f} "
-             "finish_share_pct={:.1f} "
-             "amplification={:.1f}x hot=[{:#x}:{}(w{}), {:#x}:{}(w{}), {:#x}:{}(w{})] "
-             "hot_sites=[{:#x}@{:#x}:{}(w{}), {:#x}@{:#x}:{}(w{}), "
-             "{:#x}@{:#x}:{}(w{})] "
-             "top_context=[{:#x}@{:#x}:{}(w{});rax:{:#x};rcx:{:#x};rdx:{:#x};"
-             "rsi:{:#x};rdi:{:#x};rbp:{:#x};rsp:{:#x};rcx_range:{:#x}-{:#x};"
-             "rdx_range:{:#x}-{:#x}]",
-             precise_readback_window_size / 1_KB, precise_readback_requests,
-             precise_readback_writes, precise_readback_requests - precise_readback_writes,
-             precise_readback_bounded_repeats, tracked_pages, precise_readback_requested_bytes,
-             precise_readback_download_calls, precise_readback_copy_count,
-             precise_readback_downloaded_bytes, precise_readback_no_downloads, finish_total_ms,
-             finish_average_ms, finish_max_ms, submit_total_ms, wait_total_ms, submit_share,
-             wait_share, precise_readback_queued_requests, average_outstanding_depth,
-             precise_readback_max_outstanding_depth, wall_ms, requests_per_second, finish_share,
-             amplification, first.address, first.interval_requests, first.interval_writes,
-             second.address, second.interval_requests, second.interval_writes, third.address,
-             third.interval_requests, third.interval_writes, first_site.fault_pc,
-             first_site.page_address, first_site.interval_requests, first_site.interval_writes,
-             second_site.fault_pc, second_site.page_address, second_site.interval_requests,
-             second_site.interval_writes, third_site.fault_pc, third_site.page_address,
-             third_site.interval_requests, third_site.interval_writes, first_site.fault_pc,
-             first_site.page_address, first_site.interval_requests, first_site.interval_writes,
-             first_site.last_context.rax, first_site.last_context.rcx, first_site.last_context.rdx,
-             first_site.last_context.rsi, first_site.last_context.rdi, first_site.last_context.rbp,
-             first_site.last_context.rsp, first_site.min_rcx, first_site.max_rcx,
-             first_site.min_rdx, first_site.max_rdx);
+    LOG_INFO(
+        Render_Vulkan,
+        "Precise readback stats: window_kib={} requests={} writes={} reads={} "
+        "bounded_repeats={} "
+        "tracked_pages={} requested_bytes={} download_calls={} copies={} downloaded_bytes={} "
+        "no_downloads={} finish_total_ms={:.3f} finish_avg_ms={:.3f} finish_max_ms={:.3f} "
+        "submit_total_ms={:.3f} wait_total_ms={:.3f} submit_share_pct={:.1f} "
+        "wait_share_pct={:.1f} queued_requests={} avg_outstanding_depth={:.2f} "
+        "max_outstanding_depth={} wall_ms={:.3f} request_rate={:.1f} "
+        "finish_share_pct={:.1f} site_window_kib={} site_window_hits={} "
+        "amplification={:.1f}x hot=[{:#x}:{}(w{}), {:#x}:{}(w{}), {:#x}:{}(w{})] "
+        "hot_sites=[{:#x}@{:#x}:{}(w{}), {:#x}@{:#x}:{}(w{}), "
+        "{:#x}@{:#x}:{}(w{})] "
+        "top_context=[{:#x}@{:#x}:{}(w{});rax:{:#x};rcx:{:#x};rdx:{:#x};"
+        "rsi:{:#x};rdi:{:#x};rbp:{:#x};rsp:{:#x};rcx_range:{:#x}-{:#x};"
+        "rdx_range:{:#x}-{:#x}]",
+        precise_readback_window_size / 1_KB, precise_readback_requests, precise_readback_writes,
+        precise_readback_requests - precise_readback_writes, precise_readback_bounded_repeats,
+        tracked_pages, precise_readback_requested_bytes, precise_readback_download_calls,
+        precise_readback_copy_count, precise_readback_downloaded_bytes,
+        precise_readback_no_downloads, finish_total_ms, finish_average_ms, finish_max_ms,
+        submit_total_ms, wait_total_ms, submit_share, wait_share, precise_readback_queued_requests,
+        average_outstanding_depth, precise_readback_max_outstanding_depth, wall_ms,
+        requests_per_second, finish_share, precise_readback_write_site_window_size / 1_KB,
+        precise_readback_write_site_window_hits, amplification, first.address,
+        first.interval_requests, first.interval_writes, second.address, second.interval_requests,
+        second.interval_writes, third.address, third.interval_requests, third.interval_writes,
+        first_site.fault_pc, first_site.page_address, first_site.interval_requests,
+        first_site.interval_writes, second_site.fault_pc, second_site.page_address,
+        second_site.interval_requests, second_site.interval_writes, third_site.fault_pc,
+        third_site.page_address, third_site.interval_requests, third_site.interval_writes,
+        first_site.fault_pc, first_site.page_address, first_site.interval_requests,
+        first_site.interval_writes, first_site.last_context.rax, first_site.last_context.rcx,
+        first_site.last_context.rdx, first_site.last_context.rsi, first_site.last_context.rdi,
+        first_site.last_context.rbp, first_site.last_context.rsp, first_site.min_rcx,
+        first_site.max_rcx, first_site.min_rdx, first_site.max_rdx);
 
     precise_readback_requests = 0;
     precise_readback_queued_requests = 0;
@@ -401,6 +432,7 @@ void BufferCache::LogPreciseReadbackStats() {
     precise_readback_submit_nanoseconds = 0;
     precise_readback_wait_nanoseconds = 0;
     precise_readback_max_finish_nanoseconds = 0;
+    precise_readback_write_site_window_hits = 0;
     precise_readback_interval_started_nanoseconds = interval_finished_nanoseconds;
     for (auto& page : precise_readback_hot_pages) {
         page.interval_requests = 0;
