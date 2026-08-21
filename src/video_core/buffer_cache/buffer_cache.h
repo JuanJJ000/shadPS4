@@ -8,6 +8,7 @@
 
 #include <boost/container/small_vector.hpp>
 #include "common/lru_cache.h"
+#include "common/signal_context.h"
 #include "common/slot_vector.h"
 #include "common/types.h"
 #include "video_core/buffer_cache/buffer.h"
@@ -107,10 +108,11 @@ public:
     }
 
     /// Invalidates any buffer in the logical page range.
-    void InvalidateMemory(VAddr device_addr, u64 size, VAddr fault_pc = 0);
+    void InvalidateMemory(VAddr device_addr, u64 size, Common::FaultContext fault_context = {});
 
     /// Flushes any GPU modified buffer in the logical page range back to CPU memory.
-    void ReadMemory(VAddr device_addr, u64 size, bool is_write = false, VAddr fault_pc = 0);
+    void ReadMemory(VAddr device_addr, u64 size, bool is_write = false,
+                    Common::FaultContext fault_context = {});
 
     /// Binds host vertex buffers for the current draw.
     void BindVertexBuffers(const Vulkan::GraphicsPipeline& pipeline,
@@ -184,7 +186,8 @@ private:
     ReadbackDownloadSample DownloadBufferMemory(Buffer& buffer, VAddr device_addr, u64 size,
                                                 bool measure_finish = false);
 
-    void RecordPreciseReadbackStats(VAddr device_addr, u64 size, bool is_write, VAddr fault_pc,
+    void RecordPreciseReadbackStats(VAddr device_addr, u64 size, bool is_write,
+                                    const Common::FaultContext& fault_context,
                                     u64 outstanding_depth, const ReadbackDownloadSample& sample);
 
     void LogPreciseReadbackStats();
@@ -254,6 +257,11 @@ private:
     struct ReadbackHotFaultSite {
         VAddr fault_pc{};
         VAddr page_address{};
+        Common::FaultContext last_context{};
+        u64 min_rdx{};
+        u64 max_rdx{};
+        u64 min_rcx{};
+        u64 max_rcx{};
         u64 last_request{};
         u64 interval_requests{};
         u64 interval_writes{};

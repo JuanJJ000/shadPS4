@@ -289,6 +289,28 @@ session.
   repeatable caller set for the next bounded experiment without claiming that the call sites are
   themselves safe to bypass.
 
+### Precise-readback operand context
+
+- Issue 44 follows the dominant `libc.prx+0x45dfe` write site, whose exact instruction is
+  `rep movsq` inside a memmove-like routine. A faulting instruction alone does not reveal the
+  original copy length, remaining qwords, source, destination, or game call path.
+- The existing opt-in counter now snapshots the x86-64 integer registers from the already supplied
+  fault context and copies those values through the synchronous GpuComm callback. The signal
+  handler still performs no memory dereference, allocation, formatting, or logging.
+- The bounded hot-site table records interval ranges for `RCX` and `RDX` plus the last source,
+  destination, frame, and stack values. The summarizer remains compatible with logs that have no
+  operand context.
+- An 86-second foreground Steam/Gamescope run reached correctly lit cannery gameplay with Delsin
+  rendered, stereo audio, and exit status 0. The final eight intervals contained 1,024 readback
+  requests and spent 3,651.618 ms finishing them.
+- At the dominant `rep movsq` site, `RDX` stayed between `0xb0` and `0x630` bytes (176 to 1,584)
+  and `RCX` stayed between `0x16` and `0xc6` remaining qwords. Destinations stayed within the hot
+  `0x2edaf8000` page while source ranges changed.
+- The `eboot.bin+0x349827` site is a 16-byte `vmovaps` through `RCX`; its unrelated 30 MiB `RDX`
+  value demonstrates why register meaning must be interpreted from the exact instruction.
+- This is still measurement only. The result supports a separate, opt-in A/B of a smaller
+  readback window for the bounded memmove write site; it does not make that optimization here.
+
 ## Runtime results
 
 - The legally dumped CUSA00223 package installs and launches from Steam Gaming Mode into foreground

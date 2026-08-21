@@ -15,6 +15,14 @@ HOT_PATTERN = re.compile(r"(0x[0-9a-f]+):([0-9]+)\(w([0-9]+)\)", re.IGNORECASE)
 HOT_SITE_PATTERN = re.compile(
     r"(0x[0-9a-f]+)@(0x[0-9a-f]+):([0-9]+)\(w([0-9]+)\)", re.IGNORECASE
 )
+TOP_CONTEXT_PATTERN = re.compile(
+    r"(0x[0-9a-f]+)@(0x[0-9a-f]+):([0-9]+)\(w([0-9]+)\);"
+    r"rax:(0x[0-9a-f]+);rcx:(0x[0-9a-f]+);rdx:(0x[0-9a-f]+);"
+    r"rsi:(0x[0-9a-f]+);rdi:(0x[0-9a-f]+);rbp:(0x[0-9a-f]+);"
+    r"rsp:(0x[0-9a-f]+);rcx_range:(0x[0-9a-f]+)-(0x[0-9a-f]+);"
+    r"rdx_range:(0x[0-9a-f]+)-(0x[0-9a-f]+)",
+    re.IGNORECASE,
+)
 INTEGER_FIELDS = {
     "window_kib",
     "requests",
@@ -88,6 +96,46 @@ def parse_intervals(text: str) -> list[dict[str, object]]:
             )
             if int(requests) != 0
         ]
+        top_context_match = re.search(r"\btop_context=\[([^]]*)\]", body)
+        parsed_contexts = TOP_CONTEXT_PATTERN.findall(
+            top_context_match.group(1) if top_context_match else ""
+        )
+        fields["top_context"] = None
+        if parsed_contexts and int(parsed_contexts[0][2]) != 0:
+            (
+                pc,
+                address,
+                requests,
+                writes,
+                rax,
+                rcx,
+                rdx,
+                rsi,
+                rdi,
+                rbp,
+                rsp,
+                rcx_min,
+                rcx_max,
+                rdx_min,
+                rdx_max,
+            ) = parsed_contexts[0]
+            fields["top_context"] = {
+                "pc": pc.lower(),
+                "address": address.lower(),
+                "requests": int(requests),
+                "writes": int(writes),
+                "rax": int(rax, 16),
+                "rcx": int(rcx, 16),
+                "rdx": int(rdx, 16),
+                "rsi": int(rsi, 16),
+                "rdi": int(rdi, 16),
+                "rbp": int(rbp, 16),
+                "rsp": int(rsp, 16),
+                "rcx_min": int(rcx_min, 16),
+                "rcx_max": int(rcx_max, 16),
+                "rdx_min": int(rdx_min, 16),
+                "rdx_max": int(rdx_max, 16),
+            }
         intervals.append(fields)
     return intervals
 
@@ -141,6 +189,39 @@ def summarize(intervals: list[dict[str, object]], tail_count: int) -> dict[str, 
     hottest_sites = sorted(
         hot_sites.values(), key=lambda site: (-site["requests"], site["pc"], site["address"])
     )[:5]
+    hot_contexts: dict[tuple[str, str], dict[str, object]] = {}
+    for interval in selected:
+        context = interval["top_context"]
+        if context is None:
+            continue
+        key = (context["pc"], context["address"])
+        combined = hot_contexts.setdefault(
+            key,
+            {
+                "pc": context["pc"],
+                "address": context["address"],
+                "intervals": 0,
+                "requests": 0,
+                "writes": 0,
+                "rcx_min": context["rcx_min"],
+                "rcx_max": context["rcx_max"],
+                "rdx_min": context["rdx_min"],
+                "rdx_max": context["rdx_max"],
+            },
+        )
+        combined["intervals"] += 1
+        combined["requests"] += context["requests"]
+        combined["writes"] += context["writes"]
+        combined["rcx_min"] = min(combined["rcx_min"], context["rcx_min"])
+        combined["rcx_max"] = max(combined["rcx_max"], context["rcx_max"])
+        combined["rdx_min"] = min(combined["rdx_min"], context["rdx_min"])
+        combined["rdx_max"] = max(combined["rdx_max"], context["rdx_max"])
+        for register in ("rax", "rcx", "rdx", "rsi", "rdi", "rbp", "rsp"):
+            combined[register] = context[register]
+    hottest_contexts = sorted(
+        hot_contexts.values(),
+        key=lambda context: (-context["requests"], context["pc"], context["address"]),
+    )[:5]
     return {
         "intervals_available": len(intervals),
         "intervals_selected": len(selected),
@@ -164,6 +245,7 @@ def summarize(intervals: list[dict[str, object]], tail_count: int) -> dict[str, 
         else 0.0,
         "hottest_pages": hottest,
         "hottest_sites": hottest_sites,
+        "hottest_contexts": hottest_contexts,
     }
 
 
@@ -202,6 +284,24 @@ def render_text(log_path: Path, result: dict[str, object]) -> str:
             for site in result["hottest_sites"]
         )
         lines.append(f"hottest_sites={hot_sites}")
+    if result["hottest_contexts"]:
+        contexts = ", ".join(
+            "{}@{}:{}i/{}r(w{}) rcx={}-{} rdx={}-{} last_rdi={} last_rsi={}".format(
+                context["pc"],
+                context["address"],
+                context["intervals"],
+                context["requests"],
+                context["writes"],
+                hex(context["rcx_min"]),
+                hex(context["rcx_max"]),
+                hex(context["rdx_min"]),
+                hex(context["rdx_max"]),
+                hex(context["rdi"]),
+                hex(context["rsi"]),
+            )
+            for context in result["hottest_contexts"]
+        )
+        lines.append(f"hottest_contexts={contexts}")
     return "\n".join(lines)
 
 
