@@ -143,6 +143,8 @@ void BufferCache::ReadMemory(VAddr device_addr, u64 size, bool is_write) {
             request_sample.call_count += sample.call_count;
             request_sample.copy_count += sample.copy_count;
             request_sample.finish_nanoseconds += sample.finish_nanoseconds;
+            request_sample.submit_nanoseconds += sample.submit_nanoseconds;
+            request_sample.wait_nanoseconds += sample.wait_nanoseconds;
         });
         if (is_write) {
             memory_tracker->MarkRegionAsCpuModified(device_addr, size);
@@ -164,6 +166,8 @@ void BufferCache::RecordPreciseReadbackStats(VAddr device_addr, u64 size, bool i
     precise_readback_downloaded_bytes += sample.bytes;
     precise_readback_no_downloads += sample.bytes == 0;
     precise_readback_finish_nanoseconds += sample.finish_nanoseconds;
+    precise_readback_submit_nanoseconds += sample.submit_nanoseconds;
+    precise_readback_wait_nanoseconds += sample.wait_nanoseconds;
     precise_readback_max_finish_nanoseconds =
         std::max(precise_readback_max_finish_nanoseconds, sample.finish_nanoseconds);
 
@@ -230,6 +234,19 @@ void BufferCache::LogPreciseReadbackStats() {
         finish_total_ms / static_cast<double>(precise_readback_requests);
     const double finish_max_ms =
         static_cast<double>(precise_readback_max_finish_nanoseconds) / 1'000'000.0;
+    const double submit_total_ms =
+        static_cast<double>(precise_readback_submit_nanoseconds) / 1'000'000.0;
+    const double wait_total_ms =
+        static_cast<double>(precise_readback_wait_nanoseconds) / 1'000'000.0;
+    const double submit_share = precise_readback_finish_nanoseconds != 0
+                                    ? static_cast<double>(precise_readback_submit_nanoseconds) *
+                                          100.0 /
+                                          static_cast<double>(precise_readback_finish_nanoseconds)
+                                    : 0.0;
+    const double wait_share = precise_readback_finish_nanoseconds != 0
+                                  ? static_cast<double>(precise_readback_wait_nanoseconds) * 100.0 /
+                                        static_cast<double>(precise_readback_finish_nanoseconds)
+                                  : 0.0;
     const double wall_ms = static_cast<double>(interval_wall_nanoseconds) / 1'000'000.0;
     const double requests_per_second = interval_wall_nanoseconds != 0
                                            ? static_cast<double>(precise_readback_requests) *
@@ -249,15 +266,16 @@ void BufferCache::LogPreciseReadbackStats() {
              "bounded_repeats={} "
              "tracked_pages={} requested_bytes={} download_calls={} copies={} downloaded_bytes={} "
              "no_downloads={} finish_total_ms={:.3f} finish_avg_ms={:.3f} finish_max_ms={:.3f} "
-             "wall_ms={:.3f} request_rate={:.1f} finish_share_pct={:.1f} "
+             "submit_total_ms={:.3f} wait_total_ms={:.3f} submit_share_pct={:.1f} "
+             "wait_share_pct={:.1f} wall_ms={:.3f} request_rate={:.1f} finish_share_pct={:.1f} "
              "amplification={:.1f}x hot=[{:#x}:{}(w{}), {:#x}:{}(w{}), {:#x}:{}(w{})]",
              precise_readback_window_size / 1_KB, precise_readback_requests,
-             precise_readback_writes,
-             precise_readback_requests - precise_readback_writes, precise_readback_bounded_repeats,
-             tracked_pages, precise_readback_requested_bytes, precise_readback_download_calls,
-             precise_readback_copy_count, precise_readback_downloaded_bytes,
-             precise_readback_no_downloads, finish_total_ms, finish_average_ms, finish_max_ms,
-             wall_ms, requests_per_second, finish_share, amplification, first.address,
+             precise_readback_writes, precise_readback_requests - precise_readback_writes,
+             precise_readback_bounded_repeats, tracked_pages, precise_readback_requested_bytes,
+             precise_readback_download_calls, precise_readback_copy_count,
+             precise_readback_downloaded_bytes, precise_readback_no_downloads, finish_total_ms,
+             finish_average_ms, finish_max_ms, submit_total_ms, wait_total_ms, submit_share,
+             wait_share, wall_ms, requests_per_second, finish_share, amplification, first.address,
              first.interval_requests, first.interval_writes, second.address,
              second.interval_requests, second.interval_writes, third.address,
              third.interval_requests, third.interval_writes);
@@ -271,6 +289,8 @@ void BufferCache::LogPreciseReadbackStats() {
     precise_readback_downloaded_bytes = 0;
     precise_readback_no_downloads = 0;
     precise_readback_finish_nanoseconds = 0;
+    precise_readback_submit_nanoseconds = 0;
+    precise_readback_wait_nanoseconds = 0;
     precise_readback_max_finish_nanoseconds = 0;
     precise_readback_interval_started_nanoseconds = interval_finished_nanoseconds;
     for (auto& page : precise_readback_hot_pages) {
@@ -354,7 +374,13 @@ BufferCache::ReadbackDownloadSample BufferCache::DownloadBufferMemory(Buffer& bu
     };
     const auto finish_start =
         measure_finish ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
-    scheduler.Finish();
+    if (measure_finish) {
+        const auto timing = scheduler.FinishWithTiming();
+        sample.submit_nanoseconds = timing.submit_nanoseconds;
+        sample.wait_nanoseconds = timing.wait_nanoseconds;
+    } else {
+        scheduler.Finish();
+    }
     if (measure_finish) {
         sample.finish_nanoseconds =
             static_cast<u64>(std::chrono::duration_cast<std::chrono::nanoseconds>(

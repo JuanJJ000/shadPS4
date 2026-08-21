@@ -163,6 +163,8 @@ private:
         u64 call_count{};
         u64 copy_count{};
         u64 finish_nanoseconds{};
+        u64 submit_nanoseconds{};
+        u64 wait_nanoseconds{};
     };
 
     template <typename Func>
@@ -262,6 +264,8 @@ private:
     u64 precise_readback_downloaded_bytes{};
     u64 precise_readback_no_downloads{};
     u64 precise_readback_finish_nanoseconds{};
+    u64 precise_readback_submit_nanoseconds{};
+    u64 precise_readback_wait_nanoseconds{};
     u64 precise_readback_max_finish_nanoseconds{};
     std::array<ReadbackHotPage, ReadbackStatsHotPageCount> precise_readback_hot_pages{};
 };
