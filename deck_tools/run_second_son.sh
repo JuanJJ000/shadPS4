@@ -40,8 +40,8 @@ elif [[ -r "${sleepq_stats_interval_file}" ]]; then
 else
   sleepq_stats_interval="1048576"
 fi
-if [[ ! "${sleepq_stats_interval}" =~ ^[0-9]+$ ]] ||
-   (( sleepq_stats_interval < 1024 || sleepq_stats_interval > 1000000000 )); then
+if [[ ! "${sleepq_stats_interval}" =~ ^[0-9]{1,10}$ ]] ||
+   (( 10#${sleepq_stats_interval} < 1024 || 10#${sleepq_stats_interval} > 1000000000 )); then
   echo "Ignoring invalid sleep-queue stats interval '${sleepq_stats_interval}'; expected 1024-1000000000" >&2
   sleepq_stats_interval="1048576"
   sleepq_stats_interval_source="invalid-fallback"
