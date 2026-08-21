@@ -815,6 +815,15 @@ void ControllerOutput::FinalizeUpdate(u8 gamepad_index) {
         case MOUSE_GYRO_ROLL_MODE:
             SetMouseGyroRollMode(new_button_state);
             break;
+        case CONTROLLER_SIDEWAYS_LEFT:
+            controller->SetMotionOverride(new_button_state ? -1 : 0);
+            break;
+        case CONTROLLER_SIDEWAYS_RIGHT:
+            controller->SetMotionOverride(new_button_state ? 1 : 0);
+            break;
+        case CONTROLLER_SHAKE:
+            controller->SetMotionOverride(new_button_state ? 2 : 0);
+            break;
         default: // is a normal key (hopefully)
             controller->Button(SDLGamepadToOrbisButton(button), new_button_state);
             break;

@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstdlib>
 #include <cstring>
 #include <memory>
 #include <thread>
@@ -278,13 +279,18 @@ private:
         }
 
         SDL_AudioSpec dev_spec{};
-        if (num_channels >= 6 &&
-            SDL_GetAudioDeviceFormat(SDL_GetAudioStreamDevice(stream), &dev_spec, nullptr) &&
-            dev_spec.channels >= 1 && dev_spec.channels <= 2) {
+        const bool has_device_format =
+            SDL_GetAudioDeviceFormat(SDL_GetAudioStreamDevice(stream), &dev_spec, nullptr);
+        const char* force_stereo_env = std::getenv("SHADPS4_FORCE_STEREO_DOWNMIX");
+        const bool force_stereo = force_stereo_env != nullptr && force_stereo_env[0] == '1' &&
+                                  force_stereo_env[1] == '\0';
+        if (num_channels >= 6 && (force_stereo || (has_device_format && dev_spec.channels >= 1 &&
+                                                   dev_spec.channels <= 2))) {
             ps4_downmix = true;
             internal_buffer_size = buffer_frames * sizeof(float) * 2;
-            LOG_INFO(Lib_AudioOut, "Stereo device: using PS4-accurate {}ch->stereo downmix",
-                     num_channels);
+            LOG_INFO(Lib_AudioOut,
+                     "Using PS4-accurate {}ch->stereo downmix (forced: {}, device channels: {})",
+                     num_channels, force_stereo, has_device_format ? dev_spec.channels : 0);
 
             SDL_DestroyAudioStream(stream);
             const SDL_AudioSpec stereo_fmt = {
@@ -320,8 +326,10 @@ private:
             return false;
         }
 
-        LOG_INFO(Lib_AudioOut, "Opened audio device: {} ({} Hz, {} ch, gain: {:.3f})", device_name,
-                 sample_rate, num_channels, initial_gain);
+        const u32 output_channels = ps4_downmix ? 2 : num_channels;
+        LOG_INFO(Lib_AudioOut,
+                 "Opened audio device: {} ({} Hz, {} ch output, {} ch guest, gain: {:.3f})",
+                 device_name, sample_rate, output_channels, num_channels, initial_gain);
         return true;
     }
 
@@ -493,7 +501,8 @@ private:
             LOG_WARNING(Lib_AudioOut, "Failed to get SDL buffer size: {}", SDL_GetError());
         }
 
-        const u32 sdl_buffer_size = sdl_buffer_frames * sizeof(float) * num_channels;
+        const u32 output_channels = ps4_downmix ? 2 : num_channels;
+        const u32 sdl_buffer_size = sdl_buffer_frames * sizeof(float) * output_channels;
         queue_threshold = std::max(guest_buffer_size, sdl_buffer_size) * QUEUE_MULTIPLIER;
 
         LOG_DEBUG(Lib_AudioOut, "Audio queue threshold: {} bytes (SDL buffer: {} frames)",

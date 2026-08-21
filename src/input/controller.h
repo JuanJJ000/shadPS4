@@ -97,6 +97,7 @@ public:
     void Axis(Input::Axis axis, int value, bool smooth = true);
     void UpdateGyro(const float gyro[3]);
     void UpdateAcceleration(const float acceleration[3]);
+    void SetMotionOverride(s8 mode);
     void PollState();
     void ResetOrientation();
     void SetLightBarRGB(u8 const r, u8 const g, u8 const b);
@@ -120,6 +121,7 @@ private:
     u64 m_last_orientation_update{};
     Colour colour;
     std::optional<Colour> override_colour{};
+    s8 motion_override{};
 
     State m_state;
 

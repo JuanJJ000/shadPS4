@@ -82,15 +82,21 @@ session.
 - Issue 3: query exact compressed-image Vulkan support and negotiate fallbacks.
 - Issue 4: Steam Deck Second Son playability and measurement milestone.
 - Issue 5: log failed Vulkan allocation context and live VMA heap budgets.
-- Draft PR 6: restore conservative buffer-cache LRU collection (branch
-  `fix/buffer-cache-gc`, fork only), updated through bounded dirty write-back commit `5a4acfe2`.
+- Issue 7: preserve the stencil comparison reference when stencil writes are masked off.
+- Issue 8: opt-in PS4 multichannel-to-stereo downmix for the Deck speaker path.
+- Issue 9: configurable controller-pose helpers for motion-only tutorials.
+- Issue 11: reduce the remaining Precise-readback synchronization cost.
+- PR 6: conservative buffer-cache LRU collection merged into the fork's `main` at `293c1ee6`.
 - Branch `fix/gfx-command-copy-arena` pushed to the fork at commit `9724acc4`; draft PR creation is
   intentionally deferred to a later GitHub workflow turn.
 - Branch `fix/compressed-image-negotiation` pushed to the fork at commit `0c66aa0f`; draft PR
   creation is intentionally deferred to a later GitHub workflow turn.
 - Branch `diag/vma-allocation-context` pushed to the fork at commit `05afa066`; draft PR creation is
   intentionally deferred to a later GitHub workflow turn.
-- No duplicate or superseded fork issues currently need pruning.
+- Issue 1 is complete: PR 6 merged and foreground Second Son runs now report bounded GC activity
+  without a Vulkan allocation failure.
+- PR 10 targets the fork's `deck-second-son` branch with the validated stencil, readback, audio,
+  motion-helper, and foreground launcher changes.
 
 ## Local code changes
 
@@ -155,10 +161,65 @@ session.
 - The controlled baseline and fork profiles now force Precise GPU readbacks on every launch, so a
   stale disabled-readback profile cannot invalidate lighting, particle, or progression tests.
 
+### Second Son gameplay progression
+
+- Corrected Vulkan stencil-reference selection when a PS4 stencil test has a `ReplaceOp` but a zero
+  write mask. The operation reference is irrelevant when writes are disabled; using it for the
+  comparison changed the required test reference from 4 to 0 and prevented the graffiti stencil
+  from completing.
+- Added deduplicated state logging for genuine stencil test/op-reference conflicts. This exposed
+  the exact zero-write-mask state without flooding the runtime log.
+- Readbacks that span more than one cached buffer now download the intersecting range from every
+  buffer instead of selecting only one entry. Downloads retain a bounded 512 KiB window per
+  intersection; a 2 MiB A/B test produced no measurable frame-rate gain and was reverted.
+- A title-scoped environment limit clamps obviously oversized read-only formatted shader-buffer
+  descriptors to 256 MiB. Second Son otherwise requests two multi-gigabyte ranges and exhausts the
+  Deck's unified-memory Vulkan heaps before gameplay. The two warnings are deduplicated by address.
+- Fixed ASC compute-ring parsing so type-2 padding is never interpreted as a type-3 packet length,
+  and a type-3 packet can be accumulated safely across more than one ring-boundary submission.
+- Added controller-pose helpers for sideways and shake gestures. The Deck back buttons expose the
+  helpers, while the right stick and right trigger complete the motion-only graffiti step without
+  disconnecting the real Steam Deck controller or its gyro.
+
+### Steam Deck stereo audio
+
+- PipeWire advertises an eight-channel virtual input to shadPS4 even when the selected Deck speaker
+  sink is stereo. That bypassed the existing PS4 7.1-to-stereo fold-down and left center/surround
+  content missing or badly balanced.
+- Added `SHADPS4_FORCE_STEREO_DOWNMIX=1` as an opt-in and enabled it only in the Second Son Deck
+  wrapper. The game still submits `Float_8CH_Std`, while shadPS4 now sends a two-channel float stream
+  to PipeWire.
+- PipeWire reported only active FL/FR ports for the repaired stream. A 5.94-second speaker-monitor
+  capture was stereo, measured about -18.46 dBFS peak and -30.49 dBFS RMS, and showed no clipping.
+
+### Steam Gaming Mode integration
+
+- Installed a non-Steam shortcut targeting `deck_tools/run_second_son.sh` and preserved its Steam
+  Input application identity while renaming it to `inFAMOUS Second Son (shadPS4 Deck)`.
+- Stopped and restarted `steam-launcher.service` before and after editing `shortcuts.vdf`, then
+  launched the selected Play button from the visible Gaming Mode library.
+- The shortcut uses the isolated fork profile and autosave. It does not replace, modify, or launch
+  the preserved RPCS3/inFAMOUS 1 installation.
+
 ## Runtime results
 
-No Second Son runtime test has been performed yet. The package is validated and staged, the first
-fork RelWithDebInfo build and clean incremental rebuild both passed, and `shadps4 --help` exits
-successfully. The integrated renderer source is committed at `5f923293`; the run harness records the
-exact executable SHA-256 in every evidence bundle. The first launch will remain foreground-visible
-with MangoHud/Gamescope capture after the user's active retail inFAMOUS RPCS3 session ends.
+- The legally dumped CUSA00223 package installs and launches from Steam Gaming Mode into foreground
+  Gamescope. The opening, first rendered cutscene, motion-only graffiti tutorial, autosave, and fish
+  cannery transition all complete.
+- A fresh post-restart shortcut launch resumed directly in controllable cannery gameplay. Camera
+  and forward movement advanced the tutorial to `Find the back door out of the fish cannery`.
+- Precise readbacks produce correct bright cannery lighting and progression at roughly 6-11 FPS;
+  the final movement capture showed 7-8 FPS. Disabled readbacks reached roughly 12 FPS but produced
+  black character/lighting output and is rejected as visually incorrect. Relaxed readbacks and a
+  larger readback window did not produce a useful gain.
+- The successful mixed intro/tutorial/gameplay run in `20260820-204333-fork` measured 9.92 FPS mean,
+  8.57 FPS median, and 5.00 FPS 1% low. The final clean Steam/audio run is
+  `20260820-213701-fork`; screenshots, console log, system data, MangoHud CSV, and the local stereo
+  monitor diagnostic are stored with that run.
+- Runtime memory is stable in the tested cannery segment at about 3.1 GiB process RSS, 3.9 GiB
+  MangoHud VRAM, and roughly 9 GiB total system RAM. No Vulkan device loss or allocation failure was
+  recorded. Buffer GC ran periodically and the runtime log remained below 700 lines instead of
+  repeating tens of thousands of identical oversized-buffer warnings.
+- Remaining limitation: the correctness path is substantially below real-time on the Steam Deck.
+  Precise GPU-to-CPU readbacks dominate frame time, so 30 FPS is not yet achieved even though the
+  title is now visually correct, audible, controller-connected, saveable, and in gameplay.

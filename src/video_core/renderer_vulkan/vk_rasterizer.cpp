@@ -15,6 +15,9 @@
 #include "video_core/texture_cache/image_view.h"
 #include "video_core/texture_cache/texture_cache.h"
 
+#include <cstdlib>
+#include <unordered_set>
+
 #ifdef MemoryBarrier
 #undef MemoryBarrier
 #endif
@@ -605,10 +608,43 @@ void Rasterizer::BindBuffers(const Shader::Info& stage, Shader::Backend::Binding
                              Shader::PushData& push_data) {
     buffer_bindings.clear();
 
+    static const u64 readonly_formatted_buffer_limit = []() -> u64 {
+        const char* value = std::getenv("SHADPS4_READONLY_FORMATTED_BUFFER_LIMIT_MB");
+        if (value == nullptr) {
+            return u64{0};
+        }
+        char* end{};
+        const auto limit_mb = std::strtoull(value, &end, 10);
+        if (end == value || *end != '\0' || limit_mb > std::numeric_limits<u64>::max() / 1_MB) {
+            return u64{0};
+        }
+        return static_cast<u64>(limit_mb) * 1_MB;
+    }();
+
     for (const auto& desc : stage.buffers) {
         const auto vsharp = desc.GetSharp(stage);
         if (!desc.IsSpecial() && vsharp.base_address != 0 && vsharp.GetSize() > 0) {
-            const u64 size = memory->ClampRangeSize(vsharp.base_address, vsharp.GetSize());
+            u64 size = memory->ClampRangeSize(vsharp.base_address, vsharp.GetSize());
+            if (!desc.is_written && desc.is_formatted && readonly_formatted_buffer_limit != 0 &&
+                size > readonly_formatted_buffer_limit) [[unlikely]] {
+                static std::unordered_set<VAddr> logged_limited_buffers;
+                if (logged_limited_buffers.insert(vsharp.base_address).second) {
+                    LOG_WARNING(Render_Vulkan,
+                                "Limiting oversized read-only formatted buffer at {:#x} from {} "
+                                "to {} bytes",
+                                vsharp.base_address, size, readonly_formatted_buffer_limit);
+                }
+                size = readonly_formatted_buffer_limit;
+            }
+            if (size > 512_MB) [[unlikely]] {
+                LOG_WARNING(Render_Vulkan,
+                            "Oversized shader buffer: program {:#x}, base {:#x}, raw size {} "
+                            "bytes, mapped size {} bytes, stride {}, records {}, format {}, "
+                            "written {}, formatted {}",
+                            stage.pgm_hash, vsharp.base_address, vsharp.GetSize(), size,
+                            vsharp.GetStride(), vsharp.num_records, vsharp.data_format,
+                            desc.is_written, desc.is_formatted);
+            }
             const auto buffer_id = buffer_cache.FindBuffer(vsharp.base_address, size);
             buffer_bindings.emplace_back(buffer_id, vsharp, size);
         } else {
@@ -1326,22 +1362,50 @@ void Rasterizer::UpdateDepthStencilState() const {
                    zpass == AmdGpu::StencilFunc::ReplaceOp ||
                    zfail == AmdGpu::StencilFunc::ReplaceOp;
         };
+        // A ReplaceOp cannot consume op_val when stencil writes are masked off. Prefer the test
+        // reference in that case; choosing op_val would only corrupt the comparison.
         const bool front_op =
+            !stencil_clear && front.stencil_write_mask != 0 &&
             uses_op_val(sc.stencil_fail_front, sc.stencil_zpass_front, sc.stencil_zfail_front);
-        const bool back_op =
-            regs.depth_control.backface_enable
-                ? uses_op_val(sc.stencil_fail_back, sc.stencil_zpass_back, sc.stencil_zfail_back)
-                : front_op;
+        const bool back_op = regs.depth_control.backface_enable
+                                 ? !stencil_clear && back.stencil_write_mask != 0 &&
+                                       uses_op_val(sc.stencil_fail_back, sc.stencil_zpass_back,
+                                                   sc.stencil_zfail_back)
+                                 : front_op;
         const auto ref_conflict = [](AmdGpu::CompareFunc func, const AmdGpu::StencilRefMask& ref) {
             return func != AmdGpu::CompareFunc::Always && func != AmdGpu::CompareFunc::Never &&
                    ref.stencil_test_val != ref.stencil_op_val;
         };
-        if ((front_op && ref_conflict(regs.depth_control.stencil_ref_func, front)) ||
-            (back_op && regs.depth_control.backface_enable &&
-             ref_conflict(regs.depth_control.stencil_bf_func, back))) {
-            LOG_WARNING(Render_Vulkan, "Stencil test requires test_val while ReplaceOp requires "
-                                       "op_val; the stencil test will use op_val");
-        }
+        const auto log_ref_conflict = [&](const char* face, bool use_op, AmdGpu::CompareFunc func,
+                                          const AmdGpu::StencilRefMask& ref,
+                                          AmdGpu::StencilFunc fail, AmdGpu::StencilFunc zpass,
+                                          AmdGpu::StencilFunc zfail) {
+            if (!use_op || !ref_conflict(func, ref)) {
+                return;
+            }
+            const u64 signature =
+                static_cast<u64>(ref.stencil_test_val) |
+                (static_cast<u64>(ref.stencil_op_val) << 8) |
+                (static_cast<u64>(ref.stencil_mask) << 16) |
+                (static_cast<u64>(ref.stencil_write_mask) << 24) | (static_cast<u64>(func) << 32) |
+                (static_cast<u64>(fail) << 36) | (static_cast<u64>(zpass) << 40) |
+                (static_cast<u64>(zfail) << 44) | (static_cast<u64>(face[0] == 'b') << 48);
+            static std::unordered_set<u64> logged_conflicts;
+            if (logged_conflicts.insert(signature).second) {
+                LOG_WARNING(Render_Vulkan,
+                            "{} stencil reference conflict: test {}, op {}, compare mask {:#x}, "
+                            "write mask {:#x}, compare {}, fail/zpass/zfail {}/{}/{}; using op "
+                            "value for Vulkan reference",
+                            face, ref.stencil_test_val, ref.stencil_op_val, ref.stencil_mask,
+                            ref.stencil_write_mask, static_cast<u32>(func), static_cast<u32>(fail),
+                            static_cast<u32>(zpass), static_cast<u32>(zfail));
+            }
+        };
+        log_ref_conflict("front", front_op, regs.depth_control.stencil_ref_func, front,
+                         sc.stencil_fail_front, sc.stencil_zpass_front, sc.stencil_zfail_front);
+        log_ref_conflict("back", back_op && regs.depth_control.backface_enable,
+                         regs.depth_control.stencil_bf_func, back, sc.stencil_fail_back,
+                         sc.stencil_zpass_back, sc.stencil_zfail_back);
         dynamic_state.SetStencilReferences(front_op ? front.stencil_op_val : front.stencil_test_val,
                                            back_op ? back.stencil_op_val : back.stencil_test_val);
         dynamic_state.SetStencilWriteMasks(!stencil_clear ? front.stencil_write_mask : 0U,

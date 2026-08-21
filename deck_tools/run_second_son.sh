@@ -42,10 +42,16 @@ shad_user="${xdg_data}/shadPS4"
 run_stamp="$(date +%Y%m%d-%H%M%S)"
 run_dir="${data_root}/runs/${run_stamp}-${variant}"
 mkdir -p "${shad_user}" "${run_dir}/logs" "${run_dir}/screenshots"
+# A new isolated profile has no legacy saves to migrate.  Pre-create the default user's layout so
+# the first foreground run cannot be blocked by the SDL migration dialog looking at empty old paths.
+mkdir -p "${shad_user}/home/1000/savedata" "${shad_user}/home/1000/trophy" \
+  "${shad_user}/home/1000/inputs" "${shad_user}/input_config"
 # Every A/B run starts from the same controlled global profile.  Second Son requires Precise
 # readbacks for gameplay lighting, particles, and its early graffiti interaction; stale profiles
 # with readbacks disabled make the comparison invalid.
 install -m 0644 "${repo_dir}/deck_tools/second_son_config.json" "${shad_user}/config.json"
+install -m 0644 "${repo_dir}/deck_tools/second_son_global_input.ini" \
+  "${shad_user}/input_config/global.ini"
 
 touch "${run_dir}/started.marker"
 ln -sfn "${run_dir}" "${data_root}/runs/current"
@@ -74,7 +80,7 @@ background_alpha=0.5
 autostart_log=1
 log_interval=100
 output_folder=${run_dir}
-benchmark_percentiles=97,AVG,1,0.1
+fps_metrics=avg,0.01,0.001
 log_versioning
 permit_upload=0
 EOF
@@ -113,6 +119,13 @@ collect_results() {
   echo "Run evidence: ${run_dir}"
 }
 
+# Steam may terminate the shortcut's process group as soon as the emulator window disappears.
+# Finalize evidence from EXIT as well as the usual return path, including signal-driven teardown.
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'status=$?; trap - EXIT HUP INT TERM; collect_results "${status}"' EXIT
+
 launch=(mangohud "${binary}" --game "${eboot}" --same-process --fullscreen true --show-fps
         --config-global)
 
@@ -131,10 +144,17 @@ else
 fi
 
 echo "Visible ${variant} run; evidence will be saved to ${run_dir}"
+# SteamOS core-dump processing can retain several gigabytes for five minutes after an emulator
+# assertion. Runtime logs and MangoHud evidence are preserved separately, so do not generate a core
+# during normal foreground testing.
+ulimit -c 0
 set +e
 XDG_DATA_HOME="${xdg_data}" MANGOHUD_CONFIGFILE="${mangohud_config}" \
+  SDL_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT="${SDL_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT:-0x28de/0x1205}" \
+  SDL_JOYSTICK_HIDAPI_STEAMDECK="${SDL_JOYSTICK_HIDAPI_STEAMDECK:-1}" \
+  SHADPS4_FORCE_STEREO_DOWNMIX="${SHADPS4_FORCE_STEREO_DOWNMIX:-1}" \
+  SHADPS4_READONLY_FORMATTED_BUFFER_LIMIT_MB="${SHADPS4_READONLY_FORMATTED_BUFFER_LIMIT_MB:-256}" \
   "${command[@]}" 2>&1 | tee "${run_dir}/console.log"
 exit_status="${PIPESTATUS[0]}"
 set -e
-collect_results "${exit_status}"
 exit "${exit_status}"
