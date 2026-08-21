@@ -100,6 +100,8 @@ session.
 - Issue 11 now includes precise-readback request, wait-time, hot-page, and CPU call-stack evidence.
 - Issue 12 tracks the independently measured Deck CPU-affinity improvement while the deeper
   readback work remains open in issue 11.
+- Issue 25 tracks opt-in sleep-queue contention and owner-preemption diagnostics. Simple mutex and
+  hybrid replacements are rejected because they reduced gameplay speed despite lowering CPU use.
 
 ## Local code changes
 
@@ -223,6 +225,23 @@ session.
   mean frame time. Isolating the two hot threads plus workers measured 6.257 FPS and 160.6 ms, an
   11.2% mean-FPS gain. Allowing workers to roam again fell to 5.662 FPS, confirming sibling
   contention rather than run-to-run noise.
+
+### Sleep-queue contention diagnostics
+
+- Added opt-in per-bucket sleep-queue counters for acquisitions, contention, wait and hold time,
+  owner off-CPU time, stable wait-channel identity, and guest thread classes. The normal launch
+  keeps the counters disabled.
+- Added a standard-library-only summarizer and launcher collection step so every enabled foreground
+  run produces a weighted eight-interval `sleepq-summary.txt` instead of requiring manual log math.
+- In the final visible cannery sample, the last eight intervals recorded 131,067 acquisitions at
+  2,123.236 per second. 29,101 were contended (22.203%), with aggregate waiter time equal to
+  62.486% of one wall-clock interval across the participating threads.
+- Bucket 298 accounted for 129,859 acquisitions and all 29,101 contentions without changing its
+  wait-channel address. This is one hot condition variable, not unrelated objects colliding in the
+  hash table.
+- Job workers owned 28,809 of 29,101 contentions (99.0%) and 3,976.041 of 3,980.058 measured
+  off-CPU milliseconds (99.9%). The next bounded test is therefore worker placement, while the
+  original spin lock remains selected.
 
 ## Runtime results
 

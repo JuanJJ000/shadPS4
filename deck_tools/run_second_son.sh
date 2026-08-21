@@ -8,6 +8,44 @@ eboot="${SECOND_SON_EBOOT:-${game_root}/eboot.bin}"
 data_root="${SECOND_SON_DATA_ROOT:-/home/deck/Games/shadPS4-second-son}"
 readback_stats="${SECOND_SON_READBACK_STATS:-1}"
 readback_stats_interval="${SECOND_SON_READBACK_STATS_INTERVAL:-128}"
+sleepq_stats_file="${SECOND_SON_SLEEPQ_STATS_FILE:-${data_root}/sleepq-stats.txt}"
+sleepq_stats_source="default"
+if [[ -n "${SECOND_SON_SLEEPQ_STATS:-}" ]]; then
+  sleepq_stats="${SECOND_SON_SLEEPQ_STATS}"
+  sleepq_stats_source="environment"
+elif [[ -r "${sleepq_stats_file}" ]]; then
+  IFS= read -r sleepq_stats <"${sleepq_stats_file}" || true
+  sleepq_stats="${sleepq_stats:-0}"
+  sleepq_stats_source="${sleepq_stats_file}"
+else
+  sleepq_stats="0"
+fi
+case "${sleepq_stats}" in
+  0|1) ;;
+  *)
+    echo "Ignoring invalid sleep-queue stats value '${sleepq_stats}'; expected 0 or 1" >&2
+    sleepq_stats="0"
+    sleepq_stats_source="invalid-fallback"
+    ;;
+esac
+sleepq_stats_interval_file="${SECOND_SON_SLEEPQ_STATS_INTERVAL_FILE:-${data_root}/sleepq-stats-interval.txt}"
+sleepq_stats_interval_source="default"
+if [[ -n "${SECOND_SON_SLEEPQ_STATS_INTERVAL:-}" ]]; then
+  sleepq_stats_interval="${SECOND_SON_SLEEPQ_STATS_INTERVAL}"
+  sleepq_stats_interval_source="environment"
+elif [[ -r "${sleepq_stats_interval_file}" ]]; then
+  IFS= read -r sleepq_stats_interval <"${sleepq_stats_interval_file}" || true
+  sleepq_stats_interval="${sleepq_stats_interval:-1048576}"
+  sleepq_stats_interval_source="${sleepq_stats_interval_file}"
+else
+  sleepq_stats_interval="1048576"
+fi
+if [[ ! "${sleepq_stats_interval}" =~ ^[0-9]+$ ]] ||
+   (( sleepq_stats_interval < 1024 || sleepq_stats_interval > 1000000000 )); then
+  echo "Ignoring invalid sleep-queue stats interval '${sleepq_stats_interval}'; expected 1024-1000000000" >&2
+  sleepq_stats_interval="1048576"
+  sleepq_stats_interval_source="invalid-fallback"
+fi
 readback_window_file="${SECOND_SON_READBACK_WINDOW_FILE:-${data_root}/readback-window-kb.txt}"
 readback_window_source="default"
 if [[ -n "${SECOND_SON_READBACK_WINDOW_KB:-}" ]]; then
@@ -130,6 +168,10 @@ EOF
   echo "precise_readback_stats_interval=${readback_stats_interval}"
   echo "precise_readback_window_kb=${readback_window_kb}"
   echo "precise_readback_window_source=${readback_window_source}"
+  echo "sleepq_stats=${sleepq_stats}"
+  echo "sleepq_stats_source=${sleepq_stats_source}"
+  echo "sleepq_stats_interval=${sleepq_stats_interval}"
+  echo "sleepq_stats_interval_source=${sleepq_stats_interval_source}"
   echo "gpu_performance_requested=${gpu_performance_requested}"
   echo "gpu_performance_source=${gpu_performance_source}"
   sha256sum "${binary}"
@@ -340,6 +382,10 @@ collect_results() {
   fi
   LD_PRELOAD="" python3 "${repo_dir}/deck_tools/summarize_mangohud.py" "${run_dir}" \
     >"${run_dir}/performance-summary.txt" 2>&1 || true
+  if [[ "${sleepq_stats}" == "1" ]]; then
+    LD_PRELOAD="" python3 "${repo_dir}/deck_tools/summarize_sleepq.py" "${run_dir}" --tail 8 \
+      >"${run_dir}/sleepq-summary.txt" 2>&1 || true
+  fi
   echo "Run evidence: ${run_dir}"
 }
 
@@ -384,6 +430,8 @@ XDG_DATA_HOME="${xdg_data}" MANGOHUD_CONFIGFILE="${mangohud_config}" \
   SHADPS4_PRECISE_READBACK_STATS="${SHADPS4_PRECISE_READBACK_STATS:-${readback_stats}}" \
   SHADPS4_PRECISE_READBACK_STATS_INTERVAL="${SHADPS4_PRECISE_READBACK_STATS_INTERVAL:-${readback_stats_interval}}" \
   SHADPS4_PRECISE_READBACK_WINDOW_KB="${SHADPS4_PRECISE_READBACK_WINDOW_KB:-${readback_window_kb}}" \
+  SHADPS4_SLEEPQ_STATS="${SHADPS4_SLEEPQ_STATS:-${sleepq_stats}}" \
+  SHADPS4_SLEEPQ_STATS_INTERVAL="${SHADPS4_SLEEPQ_STATS_INTERVAL:-${sleepq_stats_interval}}" \
   "${command[@]}" 2>&1 | tee "${run_dir}/console.log"
 exit_status="${PIPESTATUS[0]}"
 set -e
