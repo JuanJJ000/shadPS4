@@ -217,6 +217,8 @@ session.
   CPU governors, clocks, or power limits.
 - The watcher also exits when the emulator reaches a zombie or dead process state, so Bash and
   Steam cannot retain an already-closed title while waiting for its `/proc` entry to disappear.
+- Steam overlay diagnostics from helper subprocesses are excluded from `affinity.log`, and the
+  post-run MangoHud summarizer clears the overlay preload so its report begins with metrics.
 - In the same visible cannery scene, a 30-second unpinned sample measured 5.627 FPS and 178.3 ms
   mean frame time. Isolating the two hot threads plus workers measured 6.257 FPS and 160.6 ms, an
   11.2% mean-FPS gain. Allowing workers to roam again fell to 5.662 FPS, confirming sibling

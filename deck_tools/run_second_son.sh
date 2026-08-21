@@ -200,7 +200,7 @@ collect_results() {
     find "${shad_user}/screenshots" -maxdepth 1 -type f -newer "${run_dir}/started.marker" \
       -exec cp -t "${run_dir}/screenshots" -- {} + 2>/dev/null || true
   fi
-  python3 "${repo_dir}/deck_tools/summarize_mangohud.py" "${run_dir}" \
+  LD_PRELOAD="" python3 "${repo_dir}/deck_tools/summarize_mangohud.py" "${run_dir}" \
     >"${run_dir}/performance-summary.txt" 2>&1 || true
   echo "Run evidence: ${run_dir}"
 }
@@ -235,7 +235,7 @@ echo "Visible ${variant} run; evidence will be saved to ${run_dir}"
 # during normal foreground testing.
 ulimit -c 0
 if [[ "${variant}" == "fork" && "${SECOND_SON_CPU_AFFINITY:-1}" == "1" ]]; then
-  apply_deck_cpu_affinity "$$" >"${run_dir}/affinity.log" 2>&1 &
+  apply_deck_cpu_affinity "$$" >"${run_dir}/affinity.log" 2>/dev/null &
   affinity_pid=$!
 fi
 set +e
