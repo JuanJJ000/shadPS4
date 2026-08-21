@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <algorithm>
+#include <chrono>
+#include <cstdlib>
 #include "common/alignment.h"
 #include "common/debug.h"
 #include "common/logging/log.h"
@@ -25,6 +27,12 @@ static constexpr size_t DownloadBufferSize = 32_MB;
 static constexpr size_t UboStreamBufferSize = 64_MB;
 static constexpr size_t DeviceBufferSize = 128_MB;
 
+static u64 SteadyClockNanoseconds() {
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(
+               std::chrono::steady_clock::now().time_since_epoch())
+        .count();
+}
+
 BufferCache::BufferCache(const Vulkan::Instance& instance_, Vulkan::Scheduler& scheduler_,
                          AmdGpu::Liverpool* liverpool_, TextureCache& texture_cache_,
                          PageManager& tracker)
@@ -45,6 +53,42 @@ BufferCache::BufferCache(const Vulkan::Instance& instance_, Vulkan::Scheduler& s
     memory_tracker = std::make_unique<MemoryTracker>(tracker);
 
     std::memset(gds_buffer.mapped_data.data(), 0, DataShareBufferSize);
+
+    const char* readback_stats = std::getenv("SHADPS4_PRECISE_READBACK_STATS");
+    precise_readback_stats_enabled =
+        readback_stats != nullptr && readback_stats[0] != '\0' && readback_stats[0] != '0';
+    if (const char* interval = std::getenv("SHADPS4_PRECISE_READBACK_STATS_INTERVAL")) {
+        char* end = nullptr;
+        const auto parsed = std::strtoull(interval, &end, 10);
+        if (end != interval && *end == '\0' && parsed >= 16 && parsed <= 65'536) {
+            precise_readback_stats_interval = parsed;
+        }
+    }
+    bool readback_window_overridden = false;
+    if (const char* window_kib = std::getenv("SHADPS4_PRECISE_READBACK_WINDOW_KB")) {
+        char* end = nullptr;
+        const auto parsed = std::strtoull(window_kib, &end, 10);
+        if (end != window_kib && *end == '\0' && parsed >= 4 && parsed <= 512 &&
+            (parsed & (parsed - 1)) == 0) {
+            precise_readback_window_size = parsed * 1_KB;
+            readback_window_overridden = true;
+        } else {
+            LOG_WARNING(Render_Vulkan,
+                        "Ignoring invalid precise readback window '{}'; expected a power-of-two "
+                        "KiB value from 4 through 512",
+                        window_kib);
+        }
+    }
+    if (precise_readback_stats_enabled) {
+        precise_readback_interval_started_nanoseconds = SteadyClockNanoseconds();
+        LOG_INFO(Render_Vulkan,
+                 "Precise readback counters enabled with a {}-request reporting interval and a "
+                 "{} KiB window",
+                 precise_readback_stats_interval, precise_readback_window_size / 1_KB);
+    } else if (readback_window_overridden) {
+        LOG_INFO(Render_Vulkan, "Precise readback window set to {} KiB",
+                 precise_readback_window_size / 1_KB);
+    }
 
     // Set up garbage collection parameters
     if (!instance.CanReportMemoryUsage()) {
@@ -79,28 +123,166 @@ void BufferCache::InvalidateMemory(VAddr device_addr, u64 size) {
 
 void BufferCache::ReadMemory(VAddr device_addr, u64 size, bool is_write) {
     liverpool->SendCommand<true>([this, device_addr, size, is_write] {
+        ReadbackDownloadSample request_sample{};
         const VAddr device_addr_end = device_addr + size;
         ForEachBufferInRange(device_addr, size, [&](BufferId, Buffer& buffer) {
             // GPU-modified ranges come as many small scattered islands, so the download is
             // widened to a window around the intersection with each existing buffer.
-            constexpr u64 WindowSize = 512_KB;
             const VAddr buffer_start = buffer.CpuAddr();
             const VAddr buffer_end = buffer_start + buffer.SizeBytes();
             const VAddr intersection_start = std::max(device_addr, buffer_start);
             const VAddr intersection_end = std::min(device_addr_end, buffer_end);
-            const VAddr window_start =
-                std::max<VAddr>(Common::AlignDown(intersection_start, WindowSize), buffer_start);
+            const VAddr window_start = std::max<VAddr>(
+                Common::AlignDown(intersection_start, precise_readback_window_size), buffer_start);
             const VAddr window_end = std::min<VAddr>(
-                std::max<VAddr>(window_start + WindowSize, intersection_end), buffer_end);
-            DownloadBufferMemory(buffer, window_start, window_end - window_start);
+                std::max<VAddr>(window_start + precise_readback_window_size, intersection_end),
+                buffer_end);
+            const auto sample = DownloadBufferMemory(
+                buffer, window_start, window_end - window_start, precise_readback_stats_enabled);
+            request_sample.bytes += sample.bytes;
+            request_sample.call_count += sample.call_count;
+            request_sample.copy_count += sample.copy_count;
+            request_sample.finish_nanoseconds += sample.finish_nanoseconds;
         });
         if (is_write) {
             memory_tracker->MarkRegionAsCpuModified(device_addr, size);
         }
+        if (precise_readback_stats_enabled) {
+            RecordPreciseReadbackStats(device_addr, size, is_write, request_sample);
+        }
     });
 }
 
-void BufferCache::DownloadBufferMemory(Buffer& buffer, VAddr device_addr, u64 size) {
+void BufferCache::RecordPreciseReadbackStats(VAddr device_addr, u64 size, bool is_write,
+                                             const ReadbackDownloadSample& sample) {
+    precise_readback_sequence++;
+    precise_readback_requests++;
+    precise_readback_writes += is_write;
+    precise_readback_requested_bytes += size;
+    precise_readback_download_calls += sample.call_count;
+    precise_readback_copy_count += sample.copy_count;
+    precise_readback_downloaded_bytes += sample.bytes;
+    precise_readback_no_downloads += sample.bytes == 0;
+    precise_readback_finish_nanoseconds += sample.finish_nanoseconds;
+    precise_readback_max_finish_nanoseconds =
+        std::max(precise_readback_max_finish_nanoseconds, sample.finish_nanoseconds);
+
+    const VAddr page_address = Common::AlignDown(device_addr, ReadbackStatsPageSize);
+    auto page = std::ranges::find_if(
+        precise_readback_hot_pages, [page_address](const ReadbackHotPage& candidate) {
+            return candidate.valid && candidate.address == page_address;
+        });
+    if (page != precise_readback_hot_pages.end()) {
+        precise_readback_bounded_repeats++;
+    } else {
+        page =
+            std::ranges::find_if(precise_readback_hot_pages,
+                                 [](const ReadbackHotPage& candidate) { return !candidate.valid; });
+        if (page == precise_readback_hot_pages.end()) {
+            page = std::ranges::min_element(precise_readback_hot_pages, {},
+                                            &ReadbackHotPage::last_request);
+        }
+        *page = ReadbackHotPage{
+            .address = page_address,
+            .last_request = precise_readback_sequence,
+            .valid = true,
+        };
+    }
+    page->last_request = precise_readback_sequence;
+    page->total_requests++;
+    page->interval_requests++;
+    page->interval_writes += is_write;
+
+    if (precise_readback_requests >= precise_readback_stats_interval) {
+        LogPreciseReadbackStats();
+    }
+}
+
+void BufferCache::LogPreciseReadbackStats() {
+    const u64 interval_finished_nanoseconds = SteadyClockNanoseconds();
+    const u64 interval_wall_nanoseconds =
+        interval_finished_nanoseconds - precise_readback_interval_started_nanoseconds;
+    std::array<const ReadbackHotPage*, 3> hottest{};
+    u64 tracked_pages = 0;
+    for (const auto& page : precise_readback_hot_pages) {
+        if (!page.valid || page.interval_requests == 0) {
+            continue;
+        }
+        tracked_pages++;
+        for (size_t index = 0; index < hottest.size(); ++index) {
+            if (hottest[index] == nullptr ||
+                page.interval_requests > hottest[index]->interval_requests) {
+                for (size_t shift = hottest.size() - 1; shift > index; --shift) {
+                    hottest[shift] = hottest[shift - 1];
+                }
+                hottest[index] = &page;
+                break;
+            }
+        }
+    }
+    const ReadbackHotPage empty{};
+    const auto& first = hottest[0] != nullptr ? *hottest[0] : empty;
+    const auto& second = hottest[1] != nullptr ? *hottest[1] : empty;
+    const auto& third = hottest[2] != nullptr ? *hottest[2] : empty;
+    const double finish_total_ms =
+        static_cast<double>(precise_readback_finish_nanoseconds) / 1'000'000.0;
+    const double finish_average_ms =
+        finish_total_ms / static_cast<double>(precise_readback_requests);
+    const double finish_max_ms =
+        static_cast<double>(precise_readback_max_finish_nanoseconds) / 1'000'000.0;
+    const double wall_ms = static_cast<double>(interval_wall_nanoseconds) / 1'000'000.0;
+    const double requests_per_second = interval_wall_nanoseconds != 0
+                                           ? static_cast<double>(precise_readback_requests) *
+                                                 1'000'000'000.0 /
+                                                 static_cast<double>(interval_wall_nanoseconds)
+                                           : 0.0;
+    const double finish_share = interval_wall_nanoseconds != 0
+                                    ? static_cast<double>(precise_readback_finish_nanoseconds) *
+                                          100.0 / static_cast<double>(interval_wall_nanoseconds)
+                                    : 0.0;
+    const double amplification = precise_readback_requested_bytes != 0
+                                     ? static_cast<double>(precise_readback_downloaded_bytes) /
+                                           static_cast<double>(precise_readback_requested_bytes)
+                                     : 0.0;
+    LOG_INFO(Render_Vulkan,
+             "Precise readback stats: window_kib={} requests={} writes={} reads={} "
+             "bounded_repeats={} "
+             "tracked_pages={} requested_bytes={} download_calls={} copies={} downloaded_bytes={} "
+             "no_downloads={} finish_total_ms={:.3f} finish_avg_ms={:.3f} finish_max_ms={:.3f} "
+             "wall_ms={:.3f} request_rate={:.1f} finish_share_pct={:.1f} "
+             "amplification={:.1f}x hot=[{:#x}:{}(w{}), {:#x}:{}(w{}), {:#x}:{}(w{})]",
+             precise_readback_window_size / 1_KB, precise_readback_requests,
+             precise_readback_writes,
+             precise_readback_requests - precise_readback_writes, precise_readback_bounded_repeats,
+             tracked_pages, precise_readback_requested_bytes, precise_readback_download_calls,
+             precise_readback_copy_count, precise_readback_downloaded_bytes,
+             precise_readback_no_downloads, finish_total_ms, finish_average_ms, finish_max_ms,
+             wall_ms, requests_per_second, finish_share, amplification, first.address,
+             first.interval_requests, first.interval_writes, second.address,
+             second.interval_requests, second.interval_writes, third.address,
+             third.interval_requests, third.interval_writes);
+
+    precise_readback_requests = 0;
+    precise_readback_writes = 0;
+    precise_readback_requested_bytes = 0;
+    precise_readback_bounded_repeats = 0;
+    precise_readback_download_calls = 0;
+    precise_readback_copy_count = 0;
+    precise_readback_downloaded_bytes = 0;
+    precise_readback_no_downloads = 0;
+    precise_readback_finish_nanoseconds = 0;
+    precise_readback_max_finish_nanoseconds = 0;
+    precise_readback_interval_started_nanoseconds = interval_finished_nanoseconds;
+    for (auto& page : precise_readback_hot_pages) {
+        page.interval_requests = 0;
+        page.interval_writes = 0;
+    }
+}
+
+BufferCache::ReadbackDownloadSample BufferCache::DownloadBufferMemory(Buffer& buffer,
+                                                                      VAddr device_addr, u64 size,
+                                                                      bool measure_finish) {
+    ReadbackDownloadSample sample{};
     boost::container::small_vector<vk::BufferCopy, 1> copies;
     u64 total_size_bytes = 0;
     memory_tracker->ForEachDownloadRange<false>(
@@ -123,8 +305,11 @@ void BufferCache::DownloadBufferMemory(Buffer& buffer, VAddr device_addr, u64 si
             gpu_modified_ranges.Subtract(device_addr_out, range_size);
         });
     if (total_size_bytes == 0) {
-        return;
+        return sample;
     }
+    sample.bytes = total_size_bytes;
+    sample.call_count = 1;
+    sample.copy_count = copies.size();
     const auto [download, offset] = download_buffer.Map(total_size_bytes);
     ASSERT_MSG(download != nullptr, "Buffer download of {} bytes exceeds the {} byte readback ring",
                total_size_bytes, DownloadBufferSize);
@@ -167,8 +352,17 @@ void BufferCache::DownloadBufferMemory(Buffer& buffer, VAddr device_addr, u64 si
         }
         memory_tracker->UnmarkRegionAsGpuModified(device_addr, size);
     };
+    const auto finish_start =
+        measure_finish ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
     scheduler.Finish();
+    if (measure_finish) {
+        sample.finish_nanoseconds =
+            static_cast<u64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                 std::chrono::steady_clock::now() - finish_start)
+                                 .count());
+    }
     write_data();
+    return sample;
 }
 
 void BufferCache::BindVertexBuffers(

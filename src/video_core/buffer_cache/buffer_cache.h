@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include <array>
+
 #include <boost/container/small_vector.hpp>
 #include "common/lru_cache.h"
 #include "common/slot_vector.h"
@@ -156,6 +158,13 @@ public:
     void RunGarbageCollector();
 
 private:
+    struct ReadbackDownloadSample {
+        u64 bytes{};
+        u64 call_count{};
+        u64 copy_count{};
+        u64 finish_nanoseconds{};
+    };
+
     template <typename Func>
     void ForEachBufferInRange(VAddr device_addr, u64 size, Func&& func) {
         buffer_ranges.ForEachInRange(device_addr, size,
@@ -169,7 +178,13 @@ private:
         return !buffer_id || slot_buffers[buffer_id].is_deleted;
     }
 
-    void DownloadBufferMemory(Buffer& buffer, VAddr device_addr, u64 size);
+    ReadbackDownloadSample DownloadBufferMemory(Buffer& buffer, VAddr device_addr, u64 size,
+                                                bool measure_finish = false);
+
+    void RecordPreciseReadbackStats(VAddr device_addr, u64 size, bool is_write,
+                                    const ReadbackDownloadSample& sample);
+
+    void LogPreciseReadbackStats();
 
     [[nodiscard]] OverlapResult ResolveOverlaps(VAddr device_addr, u32 wanted_size);
 
@@ -220,6 +235,35 @@ private:
     RangeSet gpu_modified_ranges;
     SplitRangeMap<BufferId> buffer_ranges;
     PageTable page_table;
+
+    static constexpr u64 ReadbackStatsPageSize = 4_KB;
+    static constexpr size_t ReadbackStatsHotPageCount = 32;
+
+    struct ReadbackHotPage {
+        VAddr address{};
+        u64 last_request{};
+        u64 total_requests{};
+        u64 interval_requests{};
+        u64 interval_writes{};
+        bool valid{};
+    };
+
+    bool precise_readback_stats_enabled{};
+    u64 precise_readback_stats_interval{128};
+    u64 precise_readback_window_size{512_KB};
+    u64 precise_readback_interval_started_nanoseconds{};
+    u64 precise_readback_sequence{};
+    u64 precise_readback_requests{};
+    u64 precise_readback_writes{};
+    u64 precise_readback_requested_bytes{};
+    u64 precise_readback_bounded_repeats{};
+    u64 precise_readback_download_calls{};
+    u64 precise_readback_copy_count{};
+    u64 precise_readback_downloaded_bytes{};
+    u64 precise_readback_no_downloads{};
+    u64 precise_readback_finish_nanoseconds{};
+    u64 precise_readback_max_finish_nanoseconds{};
+    std::array<ReadbackHotPage, ReadbackStatsHotPageCount> precise_readback_hot_pages{};
 };
 
 } // namespace VideoCore
