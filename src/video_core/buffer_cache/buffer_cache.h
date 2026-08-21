@@ -4,6 +4,7 @@
 #pragma once
 
 #include <array>
+#include <atomic>
 
 #include <boost/container/small_vector.hpp>
 #include "common/lru_cache.h"
@@ -184,7 +185,7 @@ private:
                                                 bool measure_finish = false);
 
     void RecordPreciseReadbackStats(VAddr device_addr, u64 size, bool is_write,
-                                    const ReadbackDownloadSample& sample);
+                                    u64 outstanding_depth, const ReadbackDownloadSample& sample);
 
     void LogPreciseReadbackStats();
 
@@ -255,7 +256,11 @@ private:
     u64 precise_readback_window_size{512_KB};
     u64 precise_readback_interval_started_nanoseconds{};
     u64 precise_readback_sequence{};
+    std::atomic<u64> precise_readback_outstanding{};
     u64 precise_readback_requests{};
+    u64 precise_readback_queued_requests{};
+    u64 precise_readback_outstanding_depth_sum{};
+    u64 precise_readback_max_outstanding_depth{};
     u64 precise_readback_writes{};
     u64 precise_readback_requested_bytes{};
     u64 precise_readback_bounded_repeats{};

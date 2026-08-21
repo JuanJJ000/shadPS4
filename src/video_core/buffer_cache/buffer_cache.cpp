@@ -122,7 +122,16 @@ void BufferCache::InvalidateMemory(VAddr device_addr, u64 size) {
 }
 
 void BufferCache::ReadMemory(VAddr device_addr, u64 size, bool is_write) {
-    liverpool->SendCommand<true>([this, device_addr, size, is_write] {
+    const u64 outstanding_depth =
+        precise_readback_stats_enabled
+            ? precise_readback_outstanding.fetch_add(1, std::memory_order_relaxed) + 1
+            : 0;
+    liverpool->SendCommand<true>([this, device_addr, size, is_write, outstanding_depth] {
+        SCOPE_EXIT {
+            if (outstanding_depth != 0) {
+                precise_readback_outstanding.fetch_sub(1, std::memory_order_relaxed);
+            }
+        };
         ReadbackDownloadSample request_sample{};
         const VAddr device_addr_end = device_addr + size;
         ForEachBufferInRange(device_addr, size, [&](BufferId, Buffer& buffer) {
@@ -150,15 +159,21 @@ void BufferCache::ReadMemory(VAddr device_addr, u64 size, bool is_write) {
             memory_tracker->MarkRegionAsCpuModified(device_addr, size);
         }
         if (precise_readback_stats_enabled) {
-            RecordPreciseReadbackStats(device_addr, size, is_write, request_sample);
+            RecordPreciseReadbackStats(device_addr, size, is_write, outstanding_depth,
+                                       request_sample);
         }
     });
 }
 
 void BufferCache::RecordPreciseReadbackStats(VAddr device_addr, u64 size, bool is_write,
+                                             u64 outstanding_depth,
                                              const ReadbackDownloadSample& sample) {
     precise_readback_sequence++;
     precise_readback_requests++;
+    precise_readback_queued_requests += outstanding_depth > 1;
+    precise_readback_outstanding_depth_sum += outstanding_depth;
+    precise_readback_max_outstanding_depth =
+        std::max(precise_readback_max_outstanding_depth, outstanding_depth);
     precise_readback_writes += is_write;
     precise_readback_requested_bytes += size;
     precise_readback_download_calls += sample.call_count;
@@ -247,6 +262,9 @@ void BufferCache::LogPreciseReadbackStats() {
                                   ? static_cast<double>(precise_readback_wait_nanoseconds) * 100.0 /
                                         static_cast<double>(precise_readback_finish_nanoseconds)
                                   : 0.0;
+    const double average_outstanding_depth =
+        static_cast<double>(precise_readback_outstanding_depth_sum) /
+        static_cast<double>(precise_readback_requests);
     const double wall_ms = static_cast<double>(interval_wall_nanoseconds) / 1'000'000.0;
     const double requests_per_second = interval_wall_nanoseconds != 0
                                            ? static_cast<double>(precise_readback_requests) *
@@ -267,7 +285,9 @@ void BufferCache::LogPreciseReadbackStats() {
              "tracked_pages={} requested_bytes={} download_calls={} copies={} downloaded_bytes={} "
              "no_downloads={} finish_total_ms={:.3f} finish_avg_ms={:.3f} finish_max_ms={:.3f} "
              "submit_total_ms={:.3f} wait_total_ms={:.3f} submit_share_pct={:.1f} "
-             "wait_share_pct={:.1f} wall_ms={:.3f} request_rate={:.1f} finish_share_pct={:.1f} "
+             "wait_share_pct={:.1f} queued_requests={} avg_outstanding_depth={:.2f} "
+             "max_outstanding_depth={} wall_ms={:.3f} request_rate={:.1f} "
+             "finish_share_pct={:.1f} "
              "amplification={:.1f}x hot=[{:#x}:{}(w{}), {:#x}:{}(w{}), {:#x}:{}(w{})]",
              precise_readback_window_size / 1_KB, precise_readback_requests,
              precise_readback_writes, precise_readback_requests - precise_readback_writes,
@@ -275,12 +295,16 @@ void BufferCache::LogPreciseReadbackStats() {
              precise_readback_download_calls, precise_readback_copy_count,
              precise_readback_downloaded_bytes, precise_readback_no_downloads, finish_total_ms,
              finish_average_ms, finish_max_ms, submit_total_ms, wait_total_ms, submit_share,
-             wait_share, wall_ms, requests_per_second, finish_share, amplification, first.address,
-             first.interval_requests, first.interval_writes, second.address,
-             second.interval_requests, second.interval_writes, third.address,
+             wait_share, precise_readback_queued_requests, average_outstanding_depth,
+             precise_readback_max_outstanding_depth, wall_ms, requests_per_second, finish_share,
+             amplification, first.address, first.interval_requests, first.interval_writes,
+             second.address, second.interval_requests, second.interval_writes, third.address,
              third.interval_requests, third.interval_writes);
 
     precise_readback_requests = 0;
+    precise_readback_queued_requests = 0;
+    precise_readback_outstanding_depth_sum = 0;
+    precise_readback_max_outstanding_depth = 0;
     precise_readback_writes = 0;
     precise_readback_requested_bytes = 0;
     precise_readback_bounded_repeats = 0;
