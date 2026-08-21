@@ -383,6 +383,17 @@ session.
 - This branch does not skip downloads, alter barriers, change page protection or tracking, or avoid
   GPU completion. A future write-discard experiment is allowed only if foreground evidence shows
   that full dirty-byte coverage is common and repeatable.
+- The exact `c72df549` diagnostic build ran through the Steam/Gamescope shortcut into the correctly
+  lit cannery scene with Delsin and the objective rendered, an active float32 stereo 48 kHz stream,
+  and exit status 0. The 1,381-sample run measured 7.50 median FPS and 133.37 ms median frame time;
+  this measurement-only run is not an FPS comparison.
+- Across 43 counter intervals, all 987 selected-PC hits passed the context checks. Of those, 601
+  encountered no GPU-dirty bytes. Only 25 of the remaining 386 dirty requests were fully covered
+  by the pending write (6.477%), and only 50,756 of 833,020 exact dirty bytes overlapped the pending
+  write span (6.093%).
+- The evidence rejects a general write-discard bypass at this site: most dirty requests still need
+  old GPU data. The disabled-by-default probe remains useful diagnostic infrastructure, but no
+  readback skip is implemented or planned from this result.
 
 ## Runtime results
 
