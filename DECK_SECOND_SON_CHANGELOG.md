@@ -326,6 +326,18 @@ session.
 - This selector is test infrastructure until matched foreground control/candidate evidence proves
   both correct rendering and better frame pacing. Downloaded-byte reduction alone is not an
   acceptance result because a narrower window can create extra future faults and GPU waits.
+- Matched foreground runs used the exact `0c6ff39d` binary and the same cannery save. Both showed
+  correct lighting and Delsin, opened the main output as 48 kHz stereo, and exited with status 0.
+  Control measured 9.97 median FPS and 100.35 ms median frame time; the 64 KiB candidate measured
+  9.96 FPS and 100.40 ms. The settled final 600 samples also had the same 8.586 FPS median.
+- In the final eight counter intervals, the candidate applied the narrow window 506 times and cut
+  finish time from 3,575.905 to 2,490.485 ms (-30.4%). It nevertheless increased downloaded bytes
+  from 173,711,168 to 188,956,288 (+8.8%) and request rate from 62.133 to 89.851 per second
+  (+44.6%). The narrower site window moved work into more frequent faults instead of improving the
+  frame path.
+- The candidate fails the acceptance gate because median FPS/frame time did not improve and total
+  downloaded bytes increased. The external selector is restored to `off`; the 512 KiB default is
+  preserved, and this experimental branch is not promoted.
 
 ## Runtime results
 
