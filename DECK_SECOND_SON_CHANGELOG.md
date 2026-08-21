@@ -243,6 +243,20 @@ session.
   off-CPU milliseconds (99.9%). The next bounded test is therefore worker placement, while the
   original spin lock remains selected.
 
+### Five-worker placement experiment
+
+- Issue 39 tests one scheduler variable: whether five `JobWorker*` threads benefit from five
+  logical CPU slots instead of the known-good four-CPU mask.
+- The launcher now accepts an opt-in `SECOND_SON_JOB_WORKER_CPUS` value or
+  `job-worker-cpus.txt`, records the selected value and source in every run, and falls back to
+  `0,1,6,7` unless the value is a unique comma-separated list of Deck CPU IDs 0 through 7.
+- The safe default remains `0,1,6,7`. The candidate is `0,1,3,6,7`; `shadPS4:GpuComm` remains on
+  CPU 2 and `Game:Main` remains on CPU 4. No global CPU, SMT, governor, clock, or power setting is
+  changed.
+- This selector is test infrastructure, not an accepted performance change. A matched foreground
+  control/candidate result must pass the acceptance gate in issue 39 before the candidate can be
+  selected.
+
 ## Runtime results
 
 - The legally dumped CUSA00223 package installs and launches from Steam Gaming Mode into foreground

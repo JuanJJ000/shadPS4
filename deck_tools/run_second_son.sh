@@ -46,6 +46,37 @@ if [[ ! "${sleepq_stats_interval}" =~ ^[0-9]{1,10}$ ]] ||
   sleepq_stats_interval="1048576"
   sleepq_stats_interval_source="invalid-fallback"
 fi
+job_worker_cpus_file="${SECOND_SON_JOB_WORKER_CPUS_FILE:-${data_root}/job-worker-cpus.txt}"
+job_worker_cpus_source="default"
+if [[ -n "${SECOND_SON_JOB_WORKER_CPUS:-}" ]]; then
+  job_worker_cpus="${SECOND_SON_JOB_WORKER_CPUS}"
+  job_worker_cpus_source="environment"
+elif [[ -r "${job_worker_cpus_file}" ]]; then
+  IFS= read -r job_worker_cpus <"${job_worker_cpus_file}" || true
+  job_worker_cpus="${job_worker_cpus:-0,1,6,7}"
+  job_worker_cpus_source="${job_worker_cpus_file}"
+else
+  job_worker_cpus="0,1,6,7"
+fi
+job_worker_cpus_valid="1"
+if [[ ! "${job_worker_cpus}" =~ ^[0-7](,[0-7])*$ ]]; then
+  job_worker_cpus_valid="0"
+else
+  IFS=',' read -r -a job_worker_cpu_items <<<"${job_worker_cpus}"
+  declare -A job_worker_cpu_seen=()
+  for job_worker_cpu in "${job_worker_cpu_items[@]}"; do
+    if [[ -n "${job_worker_cpu_seen[${job_worker_cpu}]:-}" ]]; then
+      job_worker_cpus_valid="0"
+      break
+    fi
+    job_worker_cpu_seen[${job_worker_cpu}]="1"
+  done
+fi
+if [[ "${job_worker_cpus_valid}" != "1" ]]; then
+  echo "Ignoring invalid JobWorker CPU mask '${job_worker_cpus}'; expected unique CPU IDs 0-7 separated by commas" >&2
+  job_worker_cpus="0,1,6,7"
+  job_worker_cpus_source="invalid-fallback"
+fi
 readback_window_file="${SECOND_SON_READBACK_WINDOW_FILE:-${data_root}/readback-window-kb.txt}"
 readback_window_source="default"
 if [[ -n "${SECOND_SON_READBACK_WINDOW_KB:-}" ]]; then
@@ -172,6 +203,8 @@ EOF
   echo "sleepq_stats_source=${sleepq_stats_source}"
   echo "sleepq_stats_interval=${sleepq_stats_interval}"
   echo "sleepq_stats_interval_source=${sleepq_stats_interval_source}"
+  echo "job_worker_cpus=${job_worker_cpus}"
+  echo "job_worker_cpus_source=${job_worker_cpus_source}"
   echo "gpu_performance_requested=${gpu_performance_requested}"
   echo "gpu_performance_source=${gpu_performance_source}"
   sha256sum "${binary}"
@@ -351,7 +384,7 @@ apply_deck_cpu_affinity() {
       case "${name}" in
         shadPS4:GpuComm) desired="2" ;;
         Game:Main) desired="4" ;;
-        JobWorker*) desired="0,1,6,7" ;;
+        JobWorker*) desired="${job_worker_cpus}" ;;
         *) continue ;;
       esac
       [[ "${pinned[${tid}]:-}" == "${desired}" ]] && continue
