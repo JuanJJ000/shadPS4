@@ -933,42 +933,61 @@ Liverpool::Task Liverpool::ProcessCompute(std::span<const u32> acb, u32 vqid) {
         ProcessCommands();
 
         auto* header = reinterpret_cast<const PM4Header*>(acb.data());
-        u32 next_dw_off = header->type3.NumWords() + 1;
+        u32 next_dw_off{};
 
         // If we have a buffered packet, use it.
         if (queue.tmp_dwords > 0) [[unlikely]] {
             header = reinterpret_cast<const PM4Header*>(queue.tmp_packet.data());
-            next_dw_off = header->type3.NumWords() + 1 - queue.tmp_dwords;
+            ASSERT_MSG(header->type == 3, "Only type-3 packets can span an ASC ring boundary");
+            const u32 packet_dwords = header->type3.NumWords() + 1;
+            ASSERT_MSG(queue.tmp_dwords < packet_dwords,
+                       "Invalid buffered ASC packet size: buffered={}, packet={}", queue.tmp_dwords,
+                       packet_dwords);
+            next_dw_off = packet_dwords - queue.tmp_dwords;
+            if (next_dw_off > acb.size()) {
+                std::memcpy(queue.tmp_packet.data() + queue.tmp_dwords, acb.data(),
+                            acb.size_bytes());
+                queue.tmp_dwords += acb.size();
+                if constexpr (!is_indirect) {
+                    *queue.read_addr += acb.size();
+                    *queue.read_addr %= queue.ring_size_dw;
+                }
+                break;
+            }
             std::memcpy(queue.tmp_packet.data() + queue.tmp_dwords, acb.data(),
                         next_dw_off * sizeof(u32));
             queue.tmp_dwords = 0;
-        }
-
-        // If the packet is split across ring boundary, buffer until next submission
-        if (next_dw_off > acb.size()) [[unlikely]] {
-            std::memcpy(queue.tmp_packet.data(), acb.data(), acb.size_bytes());
-            queue.tmp_dwords = acb.size();
-            if constexpr (!is_indirect) {
-                *queue.read_addr += acb.size();
-                *queue.read_addr %= queue.ring_size_dw;
+        } else {
+            // Type-2 packets are one-dword padding. Check their type before interpreting the
+            // overlapping type-3 count field, especially when padding is the last ring dword.
+            if (header->type == 2) {
+                next_dw_off = 1;
+                acb = NextPacket(acb, next_dw_off);
+                if constexpr (!is_indirect) {
+                    *queue.read_addr += next_dw_off;
+                    *queue.read_addr %= queue.ring_size_dw;
+                }
+                continue;
             }
-            break;
-        }
-
-        if (header->type == 2) {
-            // Type-2 packet are used for padding purposes
-            next_dw_off = 1;
-            acb = NextPacket(acb, next_dw_off);
-            if constexpr (!is_indirect) {
-                *queue.read_addr += next_dw_off;
-                *queue.read_addr %= queue.ring_size_dw;
+            if (header->type != 3) {
+                UNREACHABLE_MSG("Invalid PM4 type {}", header->type.Value());
             }
-            continue;
-        }
 
-        if (header->type != 3) {
-            // No other types of packets were spotted so far
-            UNREACHABLE_MSG("Invalid PM4 type {}", header->type.Value());
+            next_dw_off = header->type3.NumWords() + 1;
+            if (next_dw_off > acb.size()) [[unlikely]] {
+                if constexpr (is_indirect) {
+                    LOG_ERROR(Lib_GnmDriver,
+                              "Truncated indirect ASC packet: packet dwords={}, remaining={}",
+                              next_dw_off, acb.size());
+                } else {
+                    // A packet split by the ring boundary is completed by the next submission.
+                    std::memcpy(queue.tmp_packet.data(), acb.data(), acb.size_bytes());
+                    queue.tmp_dwords = acb.size();
+                    *queue.read_addr += acb.size();
+                    *queue.read_addr %= queue.ring_size_dw;
+                }
+                break;
+            }
         }
 
         const PM4ItOpcode opcode = header->type3.opcode;

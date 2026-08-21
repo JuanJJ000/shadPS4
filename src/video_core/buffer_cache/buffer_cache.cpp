@@ -79,17 +79,21 @@ void BufferCache::InvalidateMemory(VAddr device_addr, u64 size) {
 
 void BufferCache::ReadMemory(VAddr device_addr, u64 size, bool is_write) {
     liverpool->SendCommand<true>([this, device_addr, size, is_write] {
-        Buffer& buffer = slot_buffers[FindBuffer(device_addr, size)];
-        // GPU-modified ranges come as many small scattered islands, so the download
-        // is widened to a window around the request
-        constexpr u64 WindowSize = 512_KB;
-        const VAddr buf_start = buffer.CpuAddr();
-        const VAddr buf_end = buf_start + buffer.SizeBytes();
-        const VAddr window_start =
-            std::max<VAddr>(Common::AlignDown(device_addr, WindowSize), buf_start);
-        const VAddr window_end = std::min<VAddr>(
-            std::max<VAddr>(window_start + WindowSize, device_addr + size), buf_end);
-        DownloadBufferMemory(buffer, window_start, window_end - window_start);
+        const VAddr device_addr_end = device_addr + size;
+        ForEachBufferInRange(device_addr, size, [&](BufferId, Buffer& buffer) {
+            // GPU-modified ranges come as many small scattered islands, so the download is
+            // widened to a window around the intersection with each existing buffer.
+            constexpr u64 WindowSize = 512_KB;
+            const VAddr buffer_start = buffer.CpuAddr();
+            const VAddr buffer_end = buffer_start + buffer.SizeBytes();
+            const VAddr intersection_start = std::max(device_addr, buffer_start);
+            const VAddr intersection_end = std::min(device_addr_end, buffer_end);
+            const VAddr window_start =
+                std::max<VAddr>(Common::AlignDown(intersection_start, WindowSize), buffer_start);
+            const VAddr window_end = std::min<VAddr>(
+                std::max<VAddr>(window_start + WindowSize, intersection_end), buffer_end);
+            DownloadBufferMemory(buffer, window_start, window_end - window_start);
+        });
         if (is_write) {
             memory_tracker->MarkRegionAsCpuModified(device_addr, size);
         }
