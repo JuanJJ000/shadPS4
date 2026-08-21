@@ -251,6 +251,7 @@ private:
     bool precise_readback_stats_enabled{};
     u64 precise_readback_stats_interval{128};
     u64 precise_readback_window_size{512_KB};
+    u64 precise_readback_interval_started_nanoseconds{};
     u64 precise_readback_sequence{};
     u64 precise_readback_requests{};
     u64 precise_readback_writes{};

@@ -94,6 +94,7 @@ def summarize(intervals: list[dict[str, object]], tail_count: int) -> dict[str, 
     }
     finish_total_ms = sum(float(interval["finish_total_ms"]) for interval in selected)
     finish_max_ms = max(float(interval["finish_max_ms"]) for interval in selected)
+    wall_total_ms = sum(float(interval.get("wall_ms", 0.0)) for interval in selected)
     requested_bytes = totals["requested_bytes"]
     requests = totals["requests"]
     hot_pages: dict[str, dict[str, int]] = {}
@@ -118,6 +119,11 @@ def summarize(intervals: list[dict[str, object]], tail_count: int) -> dict[str, 
         "finish_total_ms": round(finish_total_ms, 3),
         "finish_avg_ms_per_request": round(finish_total_ms / requests, 6) if requests else 0.0,
         "finish_max_ms": round(finish_max_ms, 3),
+        "wall_total_ms": round(wall_total_ms, 3) if wall_total_ms else None,
+        "request_rate": round(requests * 1000.0 / wall_total_ms, 3) if wall_total_ms else None,
+        "finish_share_pct": round(finish_total_ms * 100.0 / wall_total_ms, 3)
+        if wall_total_ms
+        else None,
         "amplification": round(totals["downloaded_bytes"] / requested_bytes, 3)
         if requested_bytes
         else 0.0,
@@ -146,6 +152,12 @@ def render_text(log_path: Path, result: dict[str, object]) -> str:
         ),
         f"bounded_repeats={result['bounded_repeats']} no_downloads={result['no_downloads']}",
     ]
+    if result["wall_total_ms"] is not None:
+        lines.append(
+            "wall_total_ms={} request_rate={} finish_share_pct={}".format(
+                result["wall_total_ms"], result["request_rate"], result["finish_share_pct"]
+            )
+        )
     if result["hottest_pages"]:
         hot = ", ".join(
             f"{page['address']}:{page['requests']}(w{page['writes']})"

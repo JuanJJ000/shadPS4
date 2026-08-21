@@ -27,6 +27,12 @@ static constexpr size_t DownloadBufferSize = 32_MB;
 static constexpr size_t UboStreamBufferSize = 64_MB;
 static constexpr size_t DeviceBufferSize = 128_MB;
 
+static u64 SteadyClockNanoseconds() {
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(
+               std::chrono::steady_clock::now().time_since_epoch())
+        .count();
+}
+
 BufferCache::BufferCache(const Vulkan::Instance& instance_, Vulkan::Scheduler& scheduler_,
                          AmdGpu::Liverpool* liverpool_, TextureCache& texture_cache_,
                          PageManager& tracker)
@@ -74,6 +80,7 @@ BufferCache::BufferCache(const Vulkan::Instance& instance_, Vulkan::Scheduler& s
         }
     }
     if (precise_readback_stats_enabled) {
+        precise_readback_interval_started_nanoseconds = SteadyClockNanoseconds();
         LOG_INFO(Render_Vulkan,
                  "Precise readback counters enabled with a {}-request reporting interval and a "
                  "{} KiB window",
@@ -192,6 +199,9 @@ void BufferCache::RecordPreciseReadbackStats(VAddr device_addr, u64 size, bool i
 }
 
 void BufferCache::LogPreciseReadbackStats() {
+    const u64 interval_finished_nanoseconds = SteadyClockNanoseconds();
+    const u64 interval_wall_nanoseconds =
+        interval_finished_nanoseconds - precise_readback_interval_started_nanoseconds;
     std::array<const ReadbackHotPage*, 3> hottest{};
     u64 tracked_pages = 0;
     for (const auto& page : precise_readback_hot_pages) {
@@ -220,6 +230,16 @@ void BufferCache::LogPreciseReadbackStats() {
         finish_total_ms / static_cast<double>(precise_readback_requests);
     const double finish_max_ms =
         static_cast<double>(precise_readback_max_finish_nanoseconds) / 1'000'000.0;
+    const double wall_ms = static_cast<double>(interval_wall_nanoseconds) / 1'000'000.0;
+    const double requests_per_second = interval_wall_nanoseconds != 0
+                                           ? static_cast<double>(precise_readback_requests) *
+                                                 1'000'000'000.0 /
+                                                 static_cast<double>(interval_wall_nanoseconds)
+                                           : 0.0;
+    const double finish_share = interval_wall_nanoseconds != 0
+                                    ? static_cast<double>(precise_readback_finish_nanoseconds) *
+                                          100.0 / static_cast<double>(interval_wall_nanoseconds)
+                                    : 0.0;
     const double amplification = precise_readback_requested_bytes != 0
                                      ? static_cast<double>(precise_readback_downloaded_bytes) /
                                            static_cast<double>(precise_readback_requested_bytes)
@@ -229,6 +249,7 @@ void BufferCache::LogPreciseReadbackStats() {
              "bounded_repeats={} "
              "tracked_pages={} requested_bytes={} download_calls={} copies={} downloaded_bytes={} "
              "no_downloads={} finish_total_ms={:.3f} finish_avg_ms={:.3f} finish_max_ms={:.3f} "
+             "wall_ms={:.3f} request_rate={:.1f} finish_share_pct={:.1f} "
              "amplification={:.1f}x hot=[{:#x}:{}(w{}), {:#x}:{}(w{}), {:#x}:{}(w{})]",
              precise_readback_window_size / 1_KB, precise_readback_requests,
              precise_readback_writes,
@@ -236,8 +257,9 @@ void BufferCache::LogPreciseReadbackStats() {
              tracked_pages, precise_readback_requested_bytes, precise_readback_download_calls,
              precise_readback_copy_count, precise_readback_downloaded_bytes,
              precise_readback_no_downloads, finish_total_ms, finish_average_ms, finish_max_ms,
-             amplification, first.address, first.interval_requests, first.interval_writes,
-             second.address, second.interval_requests, second.interval_writes, third.address,
+             wall_ms, requests_per_second, finish_share, amplification, first.address,
+             first.interval_requests, first.interval_writes, second.address,
+             second.interval_requests, second.interval_writes, third.address,
              third.interval_requests, third.interval_writes);
 
     precise_readback_requests = 0;
@@ -250,6 +272,7 @@ void BufferCache::LogPreciseReadbackStats() {
     precise_readback_no_downloads = 0;
     precise_readback_finish_nanoseconds = 0;
     precise_readback_max_finish_nanoseconds = 0;
+    precise_readback_interval_started_nanoseconds = interval_finished_nanoseconds;
     for (auto& page : precise_readback_hot_pages) {
         page.interval_requests = 0;
         page.interval_writes = 0;
