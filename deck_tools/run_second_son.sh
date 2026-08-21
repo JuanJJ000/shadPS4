@@ -119,6 +119,13 @@ collect_results() {
   echo "Run evidence: ${run_dir}"
 }
 
+# Steam may terminate the shortcut's process group as soon as the emulator window disappears.
+# Finalize evidence from EXIT as well as the usual return path, including signal-driven teardown.
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'status=$?; trap - EXIT HUP INT TERM; collect_results "${status}"' EXIT
+
 launch=(mangohud "${binary}" --game "${eboot}" --same-process --fullscreen true --show-fps
         --config-global)
 
@@ -150,5 +157,4 @@ XDG_DATA_HOME="${xdg_data}" MANGOHUD_CONFIGFILE="${mangohud_config}" \
   "${command[@]}" 2>&1 | tee "${run_dir}/console.log"
 exit_status="${PIPESTATUS[0]}"
 set -e
-collect_results "${exit_status}"
 exit "${exit_status}"
