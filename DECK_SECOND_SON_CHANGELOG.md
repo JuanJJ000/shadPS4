@@ -102,6 +102,8 @@ session.
   readback work remains open in issue 11.
 - Issue 25 tracks opt-in sleep-queue contention and owner-preemption diagnostics. Simple mutex and
   hybrid replacements are rejected because they reduced gameplay speed despite lowering CPU use.
+- Issue 57 tracks a behavior-neutral write-discard eligibility probe for the dominant Second Son
+  `rep movsq` readback site. It must prove exact dirty-byte coverage before any copy can be skipped.
 
 ## Local code changes
 
@@ -364,6 +366,34 @@ session.
 - The 256 KiB site window passes this bounded scene gate and can be promoted as an opt-in Second
   Son profile after review and an exact merged-binary foreground run. This is a modest frame-pacing
   improvement in one stationary scene, not a claim of real-time playability or broad game coverage.
+
+### Write-discard coverage probe
+
+- Issue 57 asks a narrower question than the rejected readback-window and barrier experiments: at
+  the exact `0x809b1dfe` `rep movsq` write fault, does the remaining CPU copy overwrite every byte
+  that the GPU marked dirty on the faulting 4 KiB page?
+- The probe is disabled by default and accepts only an explicit nonzero guest PC. Invalid launcher
+  and emulator values fail closed to `off`; no game or site identity is built into the emulator.
+- Context validation requires the selected write PC, forward copy direction, a nonzero bounded
+  `RCX`, arithmetic without overflow, and a remaining `RDI..RDI+RCX*8` span containing the actual
+  fault. The fault context now carries `RFLAGS` so a backward string copy cannot be misclassified.
+- Measurement runs on GpuComm before the existing download mutates the exact GPU-dirty range set.
+  It reports selector/valid hits, whole remaining span and page-local write bytes, dirty and covered
+  bytes, fully covered requests, and requests with no dirty bytes.
+- This branch does not skip downloads, alter barriers, change page protection or tracking, or avoid
+  GPU completion. A future write-discard experiment is allowed only if foreground evidence shows
+  that full dirty-byte coverage is common and repeatable.
+- The exact `c72df549` diagnostic build ran through the Steam/Gamescope shortcut into the correctly
+  lit cannery scene with Delsin and the objective rendered, an active float32 stereo 48 kHz stream,
+  and exit status 0. The 1,381-sample run measured 7.50 median FPS and 133.37 ms median frame time;
+  this measurement-only run is not an FPS comparison.
+- Across 43 counter intervals, all 987 selected-PC hits passed the context checks. Of those, 601
+  encountered no GPU-dirty bytes. Only 25 of the remaining 386 dirty requests were fully covered
+  by the pending write (6.477%), and only 50,756 of 833,020 exact dirty bytes overlapped the pending
+  write span (6.093%).
+- The evidence rejects a general write-discard bypass at this site: most dirty requests still need
+  old GPU data. The disabled-by-default probe remains useful diagnostic infrastructure, but no
+  readback skip is implemented or planned from this result.
 
 ## Runtime results
 

@@ -37,6 +37,14 @@ INTEGER_FIELDS = {
     "no_downloads",
     "site_window_kib",
     "site_window_hits",
+    "discard_probe_hits",
+    "discard_probe_valid",
+    "discard_write_span_bytes",
+    "discard_page_write_bytes",
+    "discard_dirty_bytes",
+    "discard_covered_bytes",
+    "discard_full_requests",
+    "discard_zero_dirty_requests",
 }
 REQUIRED_FIELDS = {
     "requests",
@@ -80,6 +88,17 @@ def parse_intervals(text: str) -> list[dict[str, object]]:
         fields.setdefault("window_kib", 512)
         fields.setdefault("site_window_kib", 0)
         fields.setdefault("site_window_hits", 0)
+        for name in (
+            "discard_probe_hits",
+            "discard_probe_valid",
+            "discard_write_span_bytes",
+            "discard_page_write_bytes",
+            "discard_dirty_bytes",
+            "discard_covered_bytes",
+            "discard_full_requests",
+            "discard_zero_dirty_requests",
+        ):
+            fields.setdefault(name, 0)
         hot_match = re.search(r"\bhot=\[([^]]*)\]", body)
         fields["hot"] = [
             {"address": address.lower(), "requests": int(requests), "writes": int(writes)}
@@ -162,6 +181,14 @@ def summarize(intervals: list[dict[str, object]], tail_count: int) -> dict[str, 
             "downloaded_bytes",
             "no_downloads",
             "site_window_hits",
+            "discard_probe_hits",
+            "discard_probe_valid",
+            "discard_write_span_bytes",
+            "discard_page_write_bytes",
+            "discard_dirty_bytes",
+            "discard_covered_bytes",
+            "discard_full_requests",
+            "discard_zero_dirty_requests",
         )
     }
     finish_total_ms = sum(float(interval["finish_total_ms"]) for interval in selected)
@@ -171,6 +198,9 @@ def summarize(intervals: list[dict[str, object]], tail_count: int) -> dict[str, 
     requests = totals["requests"]
     site_windows = sorted(
         {int(interval["site_window_kib"]) for interval in selected if interval["site_window_kib"]}
+    )
+    dirty_probe_requests = (
+        totals["discard_probe_valid"] - totals["discard_zero_dirty_requests"]
     )
     hot_pages: dict[str, dict[str, int]] = {}
     for interval in selected:
@@ -249,6 +279,21 @@ def summarize(intervals: list[dict[str, object]], tail_count: int) -> dict[str, 
         if requested_bytes
         else 0.0,
         "copies_per_request": round(totals["copies"] / requests, 3) if requests else 0.0,
+        "discard_valid_pct": round(
+            totals["discard_probe_valid"] * 100.0 / totals["discard_probe_hits"], 3
+        )
+        if totals["discard_probe_hits"]
+        else 0.0,
+        "discard_dirty_coverage_pct": round(
+            totals["discard_covered_bytes"] * 100.0 / totals["discard_dirty_bytes"], 3
+        )
+        if totals["discard_dirty_bytes"]
+        else 0.0,
+        "discard_full_request_pct": round(
+            totals["discard_full_requests"] * 100.0 / dirty_probe_requests, 3
+        )
+        if dirty_probe_requests
+        else 0.0,
         "downloaded_bytes_per_request": round(totals["downloaded_bytes"] / requests, 3)
         if requests
         else 0.0,
@@ -267,6 +312,24 @@ def render_text(log_path: Path, result: dict[str, object]) -> str:
         f"window_kib={window_text}",
         "site_window_kib={} site_window_hits={}".format(
             result["site_window_kib"] or 0, result["site_window_hits"]
+        ),
+        "discard_probe_hits={} discard_probe_valid={} discard_write_span_bytes={} "
+        "discard_page_write_bytes={}".format(
+            result["discard_probe_hits"],
+            result["discard_probe_valid"],
+            result["discard_write_span_bytes"],
+            result["discard_page_write_bytes"],
+        ),
+        "discard_dirty_bytes={} discard_covered_bytes={} discard_full_requests={} "
+        "discard_zero_dirty_requests={} valid_pct={} dirty_coverage_pct={} "
+        "full_request_pct={}".format(
+            result["discard_dirty_bytes"],
+            result["discard_covered_bytes"],
+            result["discard_full_requests"],
+            result["discard_zero_dirty_requests"],
+            result["discard_valid_pct"],
+            result["discard_dirty_coverage_pct"],
+            result["discard_full_request_pct"],
         ),
         f"requests={result['requests']} writes={result['writes']} reads={result['reads']}",
         f"requested_bytes={result['requested_bytes']} downloaded_bytes={result['downloaded_bytes']}",

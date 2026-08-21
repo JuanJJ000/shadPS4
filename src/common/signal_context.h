@@ -16,6 +16,7 @@ struct FaultContext {
     VAddr rdi{};
     VAddr rbp{};
     VAddr rsp{};
+    u64 rflags{};
 };
 
 void* GetXmmPointer(void* ctx, u8 index);
