@@ -20,6 +20,26 @@ elif [[ -r "${readback_window_file}" ]]; then
 else
   readback_window_kb="512"
 fi
+gpu_performance_file="${SECOND_SON_GPU_PERFORMANCE_FILE:-${data_root}/gpu-performance-level.txt}"
+gpu_performance_source="default"
+if [[ -n "${SECOND_SON_GPU_PERFORMANCE_LEVEL:-}" ]]; then
+  gpu_performance_requested="${SECOND_SON_GPU_PERFORMANCE_LEVEL}"
+  gpu_performance_source="environment"
+elif [[ -r "${gpu_performance_file}" ]]; then
+  IFS= read -r gpu_performance_requested <"${gpu_performance_file}" || true
+  gpu_performance_requested="${gpu_performance_requested:-auto}"
+  gpu_performance_source="${gpu_performance_file}"
+else
+  gpu_performance_requested="auto"
+fi
+case "${gpu_performance_requested}" in
+  auto|high) ;;
+  *)
+    echo "Ignoring invalid GPU performance level '${gpu_performance_requested}'; expected auto or high" >&2
+    gpu_performance_requested="auto"
+    gpu_performance_source="invalid-fallback"
+    ;;
+esac
 source "${repo_dir}/deck_tools/deck_runtime.sh"
 deck_runtime_detect
 
@@ -110,6 +130,8 @@ EOF
   echo "precise_readback_stats_interval=${readback_stats_interval}"
   echo "precise_readback_window_kb=${readback_window_kb}"
   echo "precise_readback_window_source=${readback_window_source}"
+  echo "gpu_performance_requested=${gpu_performance_requested}"
+  echo "gpu_performance_source=${gpu_performance_source}"
   sha256sum "${binary}"
   uname -a
   free -h
@@ -125,6 +147,96 @@ EOF
 cp "${shad_user}/config.json" "${run_dir}/config.json"
 
 affinity_pid=""
+gpu_performance_active="0"
+gpu_performance_initial=""
+gpu_performance_log="${run_dir}/gpu-performance.log"
+gpu_manager_service="com.steampowered.SteamOSManager1"
+gpu_manager_path="/com/steampowered/SteamOSManager1"
+gpu_manager_interface="com.steampowered.SteamOSManager1.GpuPerformanceLevel1"
+
+read_gpu_performance_level() {
+  local response
+  response="$(busctl --user get-property "${gpu_manager_service}" "${gpu_manager_path}" \
+    "${gpu_manager_interface}" GpuPerformanceLevel 2>/dev/null)" || return 1
+  case "${response}" in
+    's "'*)
+      response="${response#s \"}"
+      response="${response%\"}"
+      printf '%s\n' "${response}"
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+restore_gpu_performance() {
+  [[ "${gpu_performance_active}" == "1" ]] || return 0
+  local observed="" restored="0"
+  for _ in 1 2 3; do
+    busctl --user set-property "${gpu_manager_service}" "${gpu_manager_path}" \
+      "${gpu_manager_interface}" GpuPerformanceLevel s "${gpu_performance_initial}" \
+      >/dev/null 2>&1 || true
+    observed="$(read_gpu_performance_level || true)"
+    if [[ "${observed}" == "${gpu_performance_initial}" ]]; then
+      restored="1"
+      break
+    fi
+    sleep 0.1
+  done
+  {
+    echo "restore_requested=${gpu_performance_initial}"
+    echo "restore_observed=${observed:-unavailable}"
+    echo "restore_verified=${restored}"
+  } >>"${gpu_performance_log}"
+  {
+    echo "gpu_performance_restored=${observed:-unavailable}"
+    echo "gpu_performance_restore_verified=${restored}"
+  } >>"${run_dir}/system.txt"
+  gpu_performance_active="0"
+}
+
+enable_gpu_performance() {
+  {
+    echo "requested=${gpu_performance_requested}"
+    echo "source=${gpu_performance_source}"
+    echo "steam_deck=${SHADPS4_STEAM_DECK}"
+  } >"${gpu_performance_log}"
+  if [[ "${gpu_performance_requested}" != "high" ]]; then
+    echo "result=unchanged" >>"${gpu_performance_log}"
+    return 0
+  fi
+  if [[ "${SHADPS4_STEAM_DECK}" != "1" || ! -x /usr/bin/busctl ]]; then
+    echo "result=unsupported" >>"${gpu_performance_log}"
+    return 0
+  fi
+  gpu_performance_initial="$(read_gpu_performance_level || true)"
+  if [[ -z "${gpu_performance_initial}" ]]; then
+    echo "result=initial-read-failed" >>"${gpu_performance_log}"
+    return 0
+  fi
+  gpu_performance_active="1"
+  if ! busctl --user set-property "${gpu_manager_service}" "${gpu_manager_path}" \
+    "${gpu_manager_interface}" GpuPerformanceLevel s high >/dev/null 2>&1; then
+    echo "result=set-failed" >>"${gpu_performance_log}"
+    restore_gpu_performance
+    return 0
+  fi
+  local observed
+  observed="$(read_gpu_performance_level || true)"
+  if [[ "${observed}" != "high" ]]; then
+    echo "result=verification-failed" >>"${gpu_performance_log}"
+    restore_gpu_performance
+    return 0
+  fi
+  {
+    echo "initial=${gpu_performance_initial}"
+    echo "active=${observed}"
+    echo "result=enabled"
+  } >>"${gpu_performance_log}"
+  {
+    echo "gpu_performance_initial=${gpu_performance_initial}"
+    echo "gpu_performance_active=${observed}"
+  } >>"${run_dir}/system.txt"
+}
 
 apply_deck_cpu_affinity() {
   local launcher_pid="$1"
@@ -212,6 +324,7 @@ apply_deck_cpu_affinity() {
 
 collect_results() {
   local exit_status="$1"
+  restore_gpu_performance
   if [[ -n "${affinity_pid}" ]]; then
     kill "${affinity_pid}" 2>/dev/null || true
     wait "${affinity_pid}" 2>/dev/null || true
@@ -236,6 +349,8 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 trap 'status=$?; trap - EXIT HUP INT TERM; collect_results "${status}"' EXIT
+
+enable_gpu_performance
 
 launch=(mangohud "${binary}" --game "${eboot}" --same-process --fullscreen true --show-fps
         --config-global)
