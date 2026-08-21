@@ -107,10 +107,10 @@ public:
     }
 
     /// Invalidates any buffer in the logical page range.
-    void InvalidateMemory(VAddr device_addr, u64 size);
+    void InvalidateMemory(VAddr device_addr, u64 size, VAddr fault_pc = 0);
 
     /// Flushes any GPU modified buffer in the logical page range back to CPU memory.
-    void ReadMemory(VAddr device_addr, u64 size, bool is_write = false);
+    void ReadMemory(VAddr device_addr, u64 size, bool is_write = false, VAddr fault_pc = 0);
 
     /// Binds host vertex buffers for the current draw.
     void BindVertexBuffers(const Vulkan::GraphicsPipeline& pipeline,
@@ -184,7 +184,7 @@ private:
     ReadbackDownloadSample DownloadBufferMemory(Buffer& buffer, VAddr device_addr, u64 size,
                                                 bool measure_finish = false);
 
-    void RecordPreciseReadbackStats(VAddr device_addr, u64 size, bool is_write,
+    void RecordPreciseReadbackStats(VAddr device_addr, u64 size, bool is_write, VAddr fault_pc,
                                     u64 outstanding_depth, const ReadbackDownloadSample& sample);
 
     void LogPreciseReadbackStats();
@@ -251,6 +251,15 @@ private:
         bool valid{};
     };
 
+    struct ReadbackHotFaultSite {
+        VAddr fault_pc{};
+        VAddr page_address{};
+        u64 last_request{};
+        u64 interval_requests{};
+        u64 interval_writes{};
+        bool valid{};
+    };
+
     bool precise_readback_stats_enabled{};
     u64 precise_readback_stats_interval{128};
     u64 precise_readback_window_size{512_KB};
@@ -273,6 +282,7 @@ private:
     u64 precise_readback_wait_nanoseconds{};
     u64 precise_readback_max_finish_nanoseconds{};
     std::array<ReadbackHotPage, ReadbackStatsHotPageCount> precise_readback_hot_pages{};
+    std::array<ReadbackHotFaultSite, ReadbackStatsHotPageCount> precise_readback_hot_fault_sites{};
 };
 
 } // namespace VideoCore

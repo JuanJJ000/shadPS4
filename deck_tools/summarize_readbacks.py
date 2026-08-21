@@ -12,6 +12,9 @@ from pathlib import Path
 STATS_MARKER = "Precise readback stats:"
 FIELD_PATTERN = re.compile(r"\b([a-z_]+)=([0-9]+(?:\.[0-9]+)?)(?:x)?")
 HOT_PATTERN = re.compile(r"(0x[0-9a-f]+):([0-9]+)\(w([0-9]+)\)", re.IGNORECASE)
+HOT_SITE_PATTERN = re.compile(
+    r"(0x[0-9a-f]+)@(0x[0-9a-f]+):([0-9]+)\(w([0-9]+)\)", re.IGNORECASE
+)
 INTEGER_FIELDS = {
     "window_kib",
     "requests",
@@ -65,9 +68,25 @@ def parse_intervals(text: str) -> list[dict[str, object]]:
             names = ", ".join(sorted(missing))
             raise ValueError(f"line {line_number}: missing readback fields: {names}")
         fields.setdefault("window_kib", 512)
+        hot_match = re.search(r"\bhot=\[([^]]*)\]", body)
         fields["hot"] = [
             {"address": address.lower(), "requests": int(requests), "writes": int(writes)}
-            for address, requests, writes in HOT_PATTERN.findall(body)
+            for address, requests, writes in HOT_PATTERN.findall(
+                hot_match.group(1) if hot_match else ""
+            )
+        ]
+        hot_sites_match = re.search(r"\bhot_sites=\[([^]]*)\]", body)
+        fields["hot_sites"] = [
+            {
+                "pc": pc.lower(),
+                "address": address.lower(),
+                "requests": int(requests),
+                "writes": int(writes),
+            }
+            for pc, address, requests, writes in HOT_SITE_PATTERN.findall(
+                hot_sites_match.group(1) if hot_sites_match else ""
+            )
+            if int(requests) != 0
         ]
         intervals.append(fields)
     return intervals
@@ -110,6 +129,18 @@ def summarize(intervals: list[dict[str, object]], tail_count: int) -> dict[str, 
         ),
         key=lambda page: (-page["requests"], page["address"]),
     )[:5]
+    hot_sites: dict[tuple[str, str], dict[str, object]] = {}
+    for interval in selected:
+        for hot in interval["hot_sites"]:
+            key = (hot["pc"], hot["address"])
+            site = hot_sites.setdefault(
+                key, {"pc": hot["pc"], "address": hot["address"], "requests": 0, "writes": 0}
+            )
+            site["requests"] += hot["requests"]
+            site["writes"] += hot["writes"]
+    hottest_sites = sorted(
+        hot_sites.values(), key=lambda site: (-site["requests"], site["pc"], site["address"])
+    )[:5]
     return {
         "intervals_available": len(intervals),
         "intervals_selected": len(selected),
@@ -132,6 +163,7 @@ def summarize(intervals: list[dict[str, object]], tail_count: int) -> dict[str, 
         if requests
         else 0.0,
         "hottest_pages": hottest,
+        "hottest_sites": hottest_sites,
     }
 
 
@@ -164,6 +196,12 @@ def render_text(log_path: Path, result: dict[str, object]) -> str:
             for page in result["hottest_pages"]
         )
         lines.append(f"hottest_pages={hot}")
+    if result["hottest_sites"]:
+        hot_sites = ", ".join(
+            f"{site['pc']}@{site['address']}:{site['requests']}(w{site['writes']})"
+            for site in result["hottest_sites"]
+        )
+        lines.append(f"hottest_sites={hot_sites}")
     return "\n".join(lines)
 
 

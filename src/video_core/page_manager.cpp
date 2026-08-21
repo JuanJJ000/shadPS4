@@ -209,10 +209,11 @@ struct PageManager::Impl {
 
     static bool GuestFaultSignalHandler(void* context, void* fault_address) {
         const auto addr = reinterpret_cast<VAddr>(fault_address);
+        const auto fault_pc = reinterpret_cast<VAddr>(Common::GetRip(context));
         if (Common::IsWriteError(context)) {
-            return rasterizer->InvalidateMemory(addr, 8);
+            return rasterizer->InvalidateMemory(addr, 8, fault_pc);
         } else {
-            return rasterizer->ReadMemory(addr, 8);
+            return rasterizer->ReadMemory(addr, 8, fault_pc);
         }
         return false;
     }

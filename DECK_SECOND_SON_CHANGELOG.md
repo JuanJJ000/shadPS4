@@ -268,6 +268,19 @@ session.
   launcher retains the safe four-CPU default. The selector remains useful for future controlled
   tests without changing the accepted runtime policy.
 
+### Precise-readback fault-site identity
+
+- Issue 42 extends the existing opt-in readback counters with the faulting instruction address
+  paired to the touched 4 KiB data page. The bounded table records only on GpuComm after the fault
+  callback is queued; the signal handler still performs no logging or allocation.
+- The three hottest instruction/page pairs and their write counts are emitted with each existing
+  readback interval. The local summarizer aggregates those pairs while remaining compatible with
+  older logs that contain only hot data pages.
+- This is measurement only: the 512 KiB coherence window, synchronous GPU completion, page
+  protection, tracker transitions, and all stats-off synchronization behavior remain unchanged.
+- Foreground proof must identify stable hot pairs without changing rendering, controls, audio,
+  saves, or exit behavior before this diagnostic is accepted.
+
 ## Runtime results
 
 - The legally dumped CUSA00223 package installs and launches from Steam Gaming Mode into foreground
