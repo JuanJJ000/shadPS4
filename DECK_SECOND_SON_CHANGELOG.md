@@ -102,6 +102,8 @@ session.
   readback work remains open in issue 11.
 - Issue 25 tracks opt-in sleep-queue contention and owner-preemption diagnostics. Simple mutex and
   hybrid replacements are rejected because they reduced gameplay speed despite lowering CPU use.
+- Issue 57 tracks a behavior-neutral write-discard eligibility probe for the dominant Second Son
+  `rep movsq` readback site. It must prove exact dirty-byte coverage before any copy can be skipped.
 
 ## Local code changes
 
@@ -364,6 +366,23 @@ session.
 - The 256 KiB site window passes this bounded scene gate and can be promoted as an opt-in Second
   Son profile after review and an exact merged-binary foreground run. This is a modest frame-pacing
   improvement in one stationary scene, not a claim of real-time playability or broad game coverage.
+
+### Write-discard coverage probe
+
+- Issue 57 asks a narrower question than the rejected readback-window and barrier experiments: at
+  the exact `0x809b1dfe` `rep movsq` write fault, does the remaining CPU copy overwrite every byte
+  that the GPU marked dirty on the faulting 4 KiB page?
+- The probe is disabled by default and accepts only an explicit nonzero guest PC. Invalid launcher
+  and emulator values fail closed to `off`; no game or site identity is built into the emulator.
+- Context validation requires the selected write PC, forward copy direction, a nonzero bounded
+  `RCX`, arithmetic without overflow, and a remaining `RDI..RDI+RCX*8` span containing the actual
+  fault. The fault context now carries `RFLAGS` so a backward string copy cannot be misclassified.
+- Measurement runs on GpuComm before the existing download mutates the exact GPU-dirty range set.
+  It reports selector/valid hits, whole remaining span and page-local write bytes, dirty and covered
+  bytes, fully covered requests, and requests with no dirty bytes.
+- This branch does not skip downloads, alter barriers, change page protection or tracking, or avoid
+  GPU completion. A future write-discard experiment is allowed only if foreground evidence shows
+  that full dirty-byte coverage is common and repeatable.
 
 ## Runtime results
 

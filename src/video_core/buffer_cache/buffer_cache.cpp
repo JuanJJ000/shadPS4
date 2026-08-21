@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
+#include <limits>
 #include <string_view>
 #include "common/alignment.h"
 #include "common/debug.h"
@@ -98,6 +99,21 @@ BufferCache::BufferCache(const Vulkan::Instance& instance_, Vulkan::Scheduler& s
                         site_window);
         }
     }
+    if (const char* probe_pc = std::getenv("SHADPS4_PRECISE_READBACK_WRITE_DISCARD_PROBE_PC")) {
+        const std::string_view probe_value{probe_pc};
+        char* end = nullptr;
+        const auto parsed_pc = std::strtoull(probe_pc, &end, 0);
+        if (probe_value.size() > 2 && probe_value[0] == '0' &&
+            (probe_value[1] == 'x' || probe_value[1] == 'X') && parsed_pc != 0 && end != probe_pc &&
+            *end == '\0') {
+            precise_readback_write_discard_probe_pc = parsed_pc;
+        } else if (!probe_value.empty() && probe_value != "off") {
+            LOG_WARNING(Render_Vulkan,
+                        "Ignoring invalid write-discard coverage probe PC '{}'; expected off or "
+                        "a nonzero hexadecimal PC",
+                        probe_pc);
+        }
+    }
     if (precise_readback_stats_enabled) {
         precise_readback_interval_started_nanoseconds = SteadyClockNanoseconds();
         LOG_INFO(Render_Vulkan,
@@ -111,6 +127,11 @@ BufferCache::BufferCache(const Vulkan::Instance& instance_, Vulkan::Scheduler& s
     if (precise_readback_write_site_pc != 0) {
         LOG_INFO(Render_Vulkan, "Precise write-site window enabled for guest PC {:#x}: {} KiB",
                  precise_readback_write_site_pc, precise_readback_write_site_window_size / 1_KB);
+    }
+    if (precise_readback_write_discard_probe_pc != 0) {
+        LOG_INFO(Render_Vulkan,
+                 "Behavior-neutral write-discard coverage probe enabled for guest PC {:#x}",
+                 precise_readback_write_discard_probe_pc);
     }
 
     // Set up garbage collection parameters
@@ -164,6 +185,7 @@ void BufferCache::ReadMemory(VAddr device_addr, u64 size, bool is_write,
             }
         };
         ReadbackDownloadSample request_sample{};
+        const auto coverage = MeasureWriteDiscardCoverage(device_addr, is_write, fault_context);
         const VAddr device_addr_end = device_addr + size;
         ForEachBufferInRange(device_addr, size, [&](BufferId, Buffer& buffer) {
             // GPU-modified ranges come as many small scattered islands, so the download is
@@ -190,15 +212,65 @@ void BufferCache::ReadMemory(VAddr device_addr, u64 size, bool is_write,
         }
         if (precise_readback_stats_enabled) {
             RecordPreciseReadbackStats(device_addr, size, is_write, fault_context,
-                                       request_window_size, outstanding_depth, request_sample);
+                                       request_window_size, outstanding_depth, request_sample,
+                                       coverage);
         }
     });
+}
+
+BufferCache::WriteDiscardCoverageSample BufferCache::MeasureWriteDiscardCoverage(
+    VAddr device_addr, bool is_write, const Common::FaultContext& fault_context) const {
+    WriteDiscardCoverageSample sample{};
+    if (precise_readback_write_discard_probe_pc == 0 || !is_write ||
+        fault_context.rip != precise_readback_write_discard_probe_pc) {
+        return sample;
+    }
+    sample.selector_hits = 1;
+
+    // The selected Second Son site is a forward `rep movsq`. Reject a set direction flag,
+    // implausibly large count, overflow, or a destination span that does not contain the fault.
+    constexpr u64 DirectionFlag = 1ULL << 10;
+    constexpr u64 MaximumProbeBytes = 1_MB;
+    if ((fault_context.rflags & DirectionFlag) != 0 || fault_context.rcx == 0 ||
+        fault_context.rcx > MaximumProbeBytes / sizeof(u64)) {
+        return sample;
+    }
+    const u64 write_span_bytes = fault_context.rcx * sizeof(u64);
+    if (fault_context.rdi > std::numeric_limits<VAddr>::max() - write_span_bytes) {
+        return sample;
+    }
+    const VAddr write_end = fault_context.rdi + write_span_bytes;
+    if (device_addr < fault_context.rdi || device_addr >= write_end) {
+        return sample;
+    }
+
+    sample.valid_contexts = 1;
+    sample.write_span_bytes = write_span_bytes;
+    const VAddr page_start = Common::AlignDown(device_addr, ReadbackStatsPageSize);
+    const VAddr page_end = page_start + ReadbackStatsPageSize;
+    const VAddr page_write_start = std::max(page_start, fault_context.rdi);
+    const VAddr page_write_end = std::min(page_end, write_end);
+    sample.fault_page_write_bytes = page_write_end - page_write_start;
+    gpu_modified_ranges.ForEachInRange(
+        page_start, ReadbackStatsPageSize, [&](VAddr dirty_start, VAddr dirty_end) {
+            sample.gpu_dirty_bytes += dirty_end - dirty_start;
+            const VAddr covered_start = std::max(dirty_start, page_write_start);
+            const VAddr covered_end = std::min(dirty_end, page_write_end);
+            if (covered_start < covered_end) {
+                sample.covered_dirty_bytes += covered_end - covered_start;
+            }
+        });
+    sample.zero_dirty_requests = sample.gpu_dirty_bytes == 0;
+    sample.fully_covered_requests =
+        sample.gpu_dirty_bytes != 0 && sample.covered_dirty_bytes == sample.gpu_dirty_bytes;
+    return sample;
 }
 
 void BufferCache::RecordPreciseReadbackStats(VAddr device_addr, u64 size, bool is_write,
                                              const Common::FaultContext& fault_context,
                                              u64 request_window_size, u64 outstanding_depth,
-                                             const ReadbackDownloadSample& sample) {
+                                             const ReadbackDownloadSample& sample,
+                                             const WriteDiscardCoverageSample& coverage) {
     precise_readback_sequence++;
     precise_readback_requests++;
     precise_readback_queued_requests += outstanding_depth > 1;
@@ -220,6 +292,16 @@ void BufferCache::RecordPreciseReadbackStats(VAddr device_addr, u64 size, bool i
         precise_readback_write_site_pc != 0 && is_write &&
         fault_context.rip == precise_readback_write_site_pc &&
         request_window_size == precise_readback_write_site_window_size;
+    precise_readback_write_discard_coverage.selector_hits += coverage.selector_hits;
+    precise_readback_write_discard_coverage.valid_contexts += coverage.valid_contexts;
+    precise_readback_write_discard_coverage.write_span_bytes += coverage.write_span_bytes;
+    precise_readback_write_discard_coverage.fault_page_write_bytes +=
+        coverage.fault_page_write_bytes;
+    precise_readback_write_discard_coverage.gpu_dirty_bytes += coverage.gpu_dirty_bytes;
+    precise_readback_write_discard_coverage.covered_dirty_bytes += coverage.covered_dirty_bytes;
+    precise_readback_write_discard_coverage.fully_covered_requests +=
+        coverage.fully_covered_requests;
+    precise_readback_write_discard_coverage.zero_dirty_requests += coverage.zero_dirty_requests;
 
     const VAddr page_address = Common::AlignDown(device_addr, ReadbackStatsPageSize);
     auto page = std::ranges::find_if(
@@ -390,6 +472,9 @@ void BufferCache::LogPreciseReadbackStats() {
         "wait_share_pct={:.1f} queued_requests={} avg_outstanding_depth={:.2f} "
         "max_outstanding_depth={} wall_ms={:.3f} request_rate={:.1f} "
         "finish_share_pct={:.1f} site_window_kib={} site_window_hits={} "
+        "discard_probe_hits={} discard_probe_valid={} discard_write_span_bytes={} "
+        "discard_page_write_bytes={} discard_dirty_bytes={} discard_covered_bytes={} "
+        "discard_full_requests={} discard_zero_dirty_requests={} "
         "amplification={:.1f}x hot=[{:#x}:{}(w{}), {:#x}:{}(w{}), {:#x}:{}(w{})] "
         "hot_sites=[{:#x}@{:#x}:{}(w{}), {:#x}@{:#x}:{}(w{}), "
         "{:#x}@{:#x}:{}(w{})] "
@@ -404,7 +489,15 @@ void BufferCache::LogPreciseReadbackStats() {
         submit_total_ms, wait_total_ms, submit_share, wait_share, precise_readback_queued_requests,
         average_outstanding_depth, precise_readback_max_outstanding_depth, wall_ms,
         requests_per_second, finish_share, precise_readback_write_site_window_size / 1_KB,
-        precise_readback_write_site_window_hits, amplification, first.address,
+        precise_readback_write_site_window_hits,
+        precise_readback_write_discard_coverage.selector_hits,
+        precise_readback_write_discard_coverage.valid_contexts,
+        precise_readback_write_discard_coverage.write_span_bytes,
+        precise_readback_write_discard_coverage.fault_page_write_bytes,
+        precise_readback_write_discard_coverage.gpu_dirty_bytes,
+        precise_readback_write_discard_coverage.covered_dirty_bytes,
+        precise_readback_write_discard_coverage.fully_covered_requests,
+        precise_readback_write_discard_coverage.zero_dirty_requests, amplification, first.address,
         first.interval_requests, first.interval_writes, second.address, second.interval_requests,
         second.interval_writes, third.address, third.interval_requests, third.interval_writes,
         first_site.fault_pc, first_site.page_address, first_site.interval_requests,
@@ -433,6 +526,7 @@ void BufferCache::LogPreciseReadbackStats() {
     precise_readback_wait_nanoseconds = 0;
     precise_readback_max_finish_nanoseconds = 0;
     precise_readback_write_site_window_hits = 0;
+    precise_readback_write_discard_coverage = {};
     precise_readback_interval_started_nanoseconds = interval_finished_nanoseconds;
     for (auto& page : precise_readback_hot_pages) {
         page.interval_requests = 0;

@@ -27,6 +27,7 @@ FaultContext GetFaultContext(void* ctx) {
         .rdi = regs.Rdi,
         .rbp = regs.Rbp,
         .rsp = regs.Rsp,
+        .rflags = regs.EFlags,
     };
 #elif defined(__APPLE__) && defined(ARCH_X86_64)
     const auto& regs = ((ucontext_t*)ctx)->uc_mcontext->__ss;
@@ -39,6 +40,7 @@ FaultContext GetFaultContext(void* ctx) {
         .rdi = regs.__rdi,
         .rbp = regs.__rbp,
         .rsp = regs.__rsp,
+        .rflags = regs.__rflags,
     };
 #elif defined(__APPLE__) && defined(ARCH_ARM64)
     return {.rip = ((ucontext_t*)ctx)->uc_mcontext->__ss.__pc};
@@ -53,6 +55,7 @@ FaultContext GetFaultContext(void* ctx) {
         .rdi = regs.mc_rdi,
         .rbp = regs.mc_rbp,
         .rsp = regs.mc_rsp,
+        .rflags = regs.mc_rflags,
     };
 #elif defined(ARCH_X86_64)
     const auto& regs = ((ucontext_t*)ctx)->uc_mcontext.gregs;
@@ -65,6 +68,7 @@ FaultContext GetFaultContext(void* ctx) {
         .rdi = static_cast<VAddr>(regs[REG_RDI]),
         .rbp = static_cast<VAddr>(regs[REG_RBP]),
         .rsp = static_cast<VAddr>(regs[REG_RSP]),
+        .rflags = static_cast<u64>(regs[REG_EFL]),
     };
 #else
 #error "Unsupported architecture"

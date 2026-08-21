@@ -170,6 +170,17 @@ private:
         u64 wait_nanoseconds{};
     };
 
+    struct WriteDiscardCoverageSample {
+        u64 selector_hits{};
+        u64 valid_contexts{};
+        u64 write_span_bytes{};
+        u64 fault_page_write_bytes{};
+        u64 gpu_dirty_bytes{};
+        u64 covered_dirty_bytes{};
+        u64 fully_covered_requests{};
+        u64 zero_dirty_requests{};
+    };
+
     template <typename Func>
     void ForEachBufferInRange(VAddr device_addr, u64 size, Func&& func) {
         buffer_ranges.ForEachInRange(device_addr, size,
@@ -189,7 +200,11 @@ private:
     void RecordPreciseReadbackStats(VAddr device_addr, u64 size, bool is_write,
                                     const Common::FaultContext& fault_context,
                                     u64 request_window_size, u64 outstanding_depth,
-                                    const ReadbackDownloadSample& sample);
+                                    const ReadbackDownloadSample& sample,
+                                    const WriteDiscardCoverageSample& coverage);
+
+    [[nodiscard]] WriteDiscardCoverageSample MeasureWriteDiscardCoverage(
+        VAddr device_addr, bool is_write, const Common::FaultContext& fault_context) const;
 
     void LogPreciseReadbackStats();
 
@@ -274,6 +289,7 @@ private:
     u64 precise_readback_window_size{512_KB};
     VAddr precise_readback_write_site_pc{};
     u64 precise_readback_write_site_window_size{};
+    VAddr precise_readback_write_discard_probe_pc{};
     u64 precise_readback_interval_started_nanoseconds{};
     u64 precise_readback_sequence{};
     std::atomic<u64> precise_readback_outstanding{};
@@ -293,6 +309,7 @@ private:
     u64 precise_readback_wait_nanoseconds{};
     u64 precise_readback_max_finish_nanoseconds{};
     u64 precise_readback_write_site_window_hits{};
+    WriteDiscardCoverageSample precise_readback_write_discard_coverage{};
     std::array<ReadbackHotPage, ReadbackStatsHotPageCount> precise_readback_hot_pages{};
     std::array<ReadbackHotFaultSite, ReadbackStatsHotPageCount> precise_readback_hot_fault_sites{};
 };
