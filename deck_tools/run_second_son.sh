@@ -106,6 +106,7 @@ cp "${shad_user}/config.json" "${run_dir}/config.json"
 affinity_pid=""
 
 apply_deck_cpu_affinity() {
+  local launcher_pid="$1"
   # The watcher runs helper binaries, not the game. Steam's mixed-architecture overlay preload
   # produces an ELF-class warning for each helper invocation, so keep it out of this subshell.
   unset LD_PRELOAD
@@ -121,10 +122,28 @@ apply_deck_cpu_affinity() {
     return
   fi
 
-  local game_pid=""
+  local game_pid="" candidate ancestor parent
   local -A pinned=()
   for _ in $(seq 1 300); do
-    game_pid="$(pgrep -u "${UID}" -n -f "^${binary} --game ${eboot} " || true)"
+    for candidate in $(pgrep -u "${UID}" -f "^${binary} --game ${eboot} " || true); do
+      ancestor="${candidate}"
+      while [[ "${ancestor}" =~ ^[0-9]+$ && "${ancestor}" -gt 1 &&
+               -r "/proc/${ancestor}/status" ]]; do
+        if [[ "${ancestor}" == "${launcher_pid}" ]]; then
+          game_pid="${candidate}"
+          break 2
+        fi
+        parent=""
+        while read -r key value _; do
+          if [[ "${key}" == "PPid:" ]]; then
+            parent="${value}"
+            break
+          fi
+        done <"/proc/${ancestor}/status"
+        [[ -n "${parent}" ]] || break
+        ancestor="${parent}"
+      done
+    done
     [[ -n "${game_pid}" ]] && break
     sleep 0.1
   done
@@ -206,7 +225,7 @@ echo "Visible ${variant} run; evidence will be saved to ${run_dir}"
 # during normal foreground testing.
 ulimit -c 0
 if [[ "${variant}" == "fork" && "${SECOND_SON_CPU_AFFINITY:-1}" == "1" ]]; then
-  apply_deck_cpu_affinity >"${run_dir}/affinity.log" 2>&1 &
+  apply_deck_cpu_affinity "$$" >"${run_dir}/affinity.log" 2>&1 &
   affinity_pid=$!
 fi
 set +e
