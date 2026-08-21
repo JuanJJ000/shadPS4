@@ -268,6 +268,27 @@ session.
   launcher retains the safe four-CPU default. The selector remains useful for future controlled
   tests without changing the accepted runtime policy.
 
+### Precise-readback fault-site identity
+
+- Issue 42 extends the existing opt-in readback counters with the faulting instruction address
+  paired to the touched 4 KiB data page. The bounded table records only on GpuComm after the fault
+  callback is queued; the signal handler still performs no logging or allocation.
+- The three hottest instruction/page pairs and their write counts are emitted with each existing
+  readback interval. The local summarizer aggregates those pairs while remaining compatible with
+  older logs that contain only hot data pages.
+- This is measurement only: the 512 KiB coherence window, synchronous GPU completion, page
+  protection, tracker transitions, and all stats-off synchronization behavior remain unchanged.
+- A 156-second foreground Steam/Gamescope run reached correctly lit cannery gameplay, kept the
+  stereo 48 kHz output path, and exited with status 0. Its final eight intervals measured 1,024
+  readback requests, 545 writes, 479 reads, and 3,327.092 ms spent finishing readbacks.
+- Two stable write sites dominated the bounded sample: `libc.prx+0x45dfe` wrote page
+  `0x2edaf8000` 272 times, while `eboot.bin+0x349827` wrote page `0x24bf86000` 136 times.
+  `eboot.bin+0x350ca4` was the repeated read-side caller, with its data page changing over time.
+  These module identities come from the exact loader ranges recorded in the same run.
+- The diagnostic therefore passed its behavior-neutral foreground gate. It identifies a small,
+  repeatable caller set for the next bounded experiment without claiming that the call sites are
+  themselves safe to bypass.
+
 ## Runtime results
 
 - The legally dumped CUSA00223 package installs and launches from Steam Gaming Mode into foreground
