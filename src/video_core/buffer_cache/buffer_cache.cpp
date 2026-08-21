@@ -58,10 +58,29 @@ BufferCache::BufferCache(const Vulkan::Instance& instance_, Vulkan::Scheduler& s
             precise_readback_stats_interval = parsed;
         }
     }
+    bool readback_window_overridden = false;
+    if (const char* window_kib = std::getenv("SHADPS4_PRECISE_READBACK_WINDOW_KB")) {
+        char* end = nullptr;
+        const auto parsed = std::strtoull(window_kib, &end, 10);
+        if (end != window_kib && *end == '\0' && parsed >= 4 && parsed <= 512 &&
+            (parsed & (parsed - 1)) == 0) {
+            precise_readback_window_size = parsed * 1_KB;
+            readback_window_overridden = true;
+        } else {
+            LOG_WARNING(Render_Vulkan,
+                        "Ignoring invalid precise readback window '{}'; expected a power-of-two "
+                        "KiB value from 4 through 512",
+                        window_kib);
+        }
+    }
     if (precise_readback_stats_enabled) {
         LOG_INFO(Render_Vulkan,
-                 "Precise readback counters enabled with a {}-request reporting interval",
-                 precise_readback_stats_interval);
+                 "Precise readback counters enabled with a {}-request reporting interval and a "
+                 "{} KiB window",
+                 precise_readback_stats_interval, precise_readback_window_size / 1_KB);
+    } else if (readback_window_overridden) {
+        LOG_INFO(Render_Vulkan, "Precise readback window set to {} KiB",
+                 precise_readback_window_size / 1_KB);
     }
 
     // Set up garbage collection parameters
@@ -102,15 +121,15 @@ void BufferCache::ReadMemory(VAddr device_addr, u64 size, bool is_write) {
         ForEachBufferInRange(device_addr, size, [&](BufferId, Buffer& buffer) {
             // GPU-modified ranges come as many small scattered islands, so the download is
             // widened to a window around the intersection with each existing buffer.
-            constexpr u64 WindowSize = 512_KB;
             const VAddr buffer_start = buffer.CpuAddr();
             const VAddr buffer_end = buffer_start + buffer.SizeBytes();
             const VAddr intersection_start = std::max(device_addr, buffer_start);
             const VAddr intersection_end = std::min(device_addr_end, buffer_end);
-            const VAddr window_start =
-                std::max<VAddr>(Common::AlignDown(intersection_start, WindowSize), buffer_start);
+            const VAddr window_start = std::max<VAddr>(
+                Common::AlignDown(intersection_start, precise_readback_window_size), buffer_start);
             const VAddr window_end = std::min<VAddr>(
-                std::max<VAddr>(window_start + WindowSize, intersection_end), buffer_end);
+                std::max<VAddr>(window_start + precise_readback_window_size, intersection_end),
+                buffer_end);
             const auto sample = DownloadBufferMemory(
                 buffer, window_start, window_end - window_start, precise_readback_stats_enabled);
             request_sample.bytes += sample.bytes;
@@ -206,11 +225,13 @@ void BufferCache::LogPreciseReadbackStats() {
                                            static_cast<double>(precise_readback_requested_bytes)
                                      : 0.0;
     LOG_INFO(Render_Vulkan,
-             "Precise readback stats: requests={} writes={} reads={} bounded_repeats={} "
+             "Precise readback stats: window_kib={} requests={} writes={} reads={} "
+             "bounded_repeats={} "
              "tracked_pages={} requested_bytes={} download_calls={} copies={} downloaded_bytes={} "
              "no_downloads={} finish_total_ms={:.3f} finish_avg_ms={:.3f} finish_max_ms={:.3f} "
              "amplification={:.1f}x hot=[{:#x}:{}(w{}), {:#x}:{}(w{}), {:#x}:{}(w{})]",
-             precise_readback_requests, precise_readback_writes,
+             precise_readback_window_size / 1_KB, precise_readback_requests,
+             precise_readback_writes,
              precise_readback_requests - precise_readback_writes, precise_readback_bounded_repeats,
              tracked_pages, precise_readback_requested_bytes, precise_readback_download_calls,
              precise_readback_copy_count, precise_readback_downloaded_bytes,

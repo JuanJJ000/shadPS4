@@ -8,6 +8,7 @@ eboot="${SECOND_SON_EBOOT:-${game_root}/eboot.bin}"
 data_root="${SECOND_SON_DATA_ROOT:-/home/deck/Games/shadPS4-second-son}"
 readback_stats="${SECOND_SON_READBACK_STATS:-1}"
 readback_stats_interval="${SECOND_SON_READBACK_STATS_INTERVAL:-128}"
+readback_window_kb="${SECOND_SON_READBACK_WINDOW_KB:-512}"
 source "${repo_dir}/deck_tools/deck_runtime.sh"
 deck_runtime_detect
 
@@ -96,6 +97,7 @@ EOF
   echo "eboot=${eboot}"
   echo "precise_readback_stats=${readback_stats}"
   echo "precise_readback_stats_interval=${readback_stats_interval}"
+  echo "precise_readback_window_kb=${readback_window_kb}"
   sha256sum "${binary}"
   uname -a
   free -h
@@ -254,6 +256,7 @@ XDG_DATA_HOME="${xdg_data}" MANGOHUD_CONFIGFILE="${mangohud_config}" \
   SHADPS4_READONLY_FORMATTED_BUFFER_LIMIT_MB="${SHADPS4_READONLY_FORMATTED_BUFFER_LIMIT_MB:-256}" \
   SHADPS4_PRECISE_READBACK_STATS="${SHADPS4_PRECISE_READBACK_STATS:-${readback_stats}}" \
   SHADPS4_PRECISE_READBACK_STATS_INTERVAL="${SHADPS4_PRECISE_READBACK_STATS_INTERVAL:-${readback_stats_interval}}" \
+  SHADPS4_PRECISE_READBACK_WINDOW_KB="${SHADPS4_PRECISE_READBACK_WINDOW_KB:-${readback_window_kb}}" \
   "${command[@]}" 2>&1 | tee "${run_dir}/console.log"
 exit_status="${PIPESTATUS[0]}"
 set -e
