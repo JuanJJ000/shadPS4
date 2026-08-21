@@ -106,6 +106,8 @@ session.
   `rep movsq` readback site. It must prove exact dirty-byte coverage before any copy can be skipped.
 - Issue 59 tracks the one-commit upstream sync that corrects an out-of-bounds controller-combo
   array write while preserving all fork-only Steam Deck work.
+- Issue 61 tracks a standalone synthetic probe of direct Vulkan host-memory import before any
+  attempt to replace the buffer cache's separate device-local shadow allocations.
 
 ## Local code changes
 
@@ -403,6 +405,22 @@ session.
 - The evidence rejects a general write-discard bypass at this site: most dirty requests still need
   old GPU data. The disabled-by-default probe remains useful diagnostic infrastructure, but no
   readback skip is implemented or planned from this result.
+
+### External host-memory buffer probe
+
+- RADV on the Steam Deck exposes `VK_EXT_external_memory_host` with 4 KiB pointer alignment and
+  reports the full buffer-cache usage combination as importable.
+- A standalone synthetic probe imports a 64 KiB aligned host allocation, binds it to a Vulkan
+  buffer, copies CPU-written patterns through the GPU into a separate readback buffer, then fills
+  the imported buffer on the GPU and verifies the original host pointer after explicit barriers and
+  a fence.
+- Five validation-enabled runs completed 500 of 500 two-way iterations without a mismatch or
+  validation message. Individual 100-iteration runs took 9.556 to 14.380 ms; those microbenchmarks
+  prove coherence, not game performance.
+- `vkGetMemoryHostPointerPropertiesEXT` returned only memory type bit `0x20`. The selected type 5
+  has flags `0xE`: host-visible, host-coherent, and host-cached, but not device-local. Direct guest
+  buffers are therefore technically possible but may trade readback-copy cost for slower GPU
+  access. No emulator behavior changes in this issue.
 
 ## Runtime results
 
