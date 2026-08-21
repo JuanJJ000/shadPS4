@@ -103,8 +103,65 @@ EOF
 } >"${run_dir}/system.txt"
 cp "${shad_user}/config.json" "${run_dir}/config.json"
 
+affinity_pid=""
+
+apply_deck_cpu_affinity() {
+  # The watcher runs helper binaries, not the game. Steam's mixed-architecture overlay preload
+  # produces an ELF-class warning for each helper invocation, so keep it out of this subshell.
+  unset LD_PRELOAD
+  if [[ ! -x /usr/bin/taskset || ! -r /sys/devices/system/cpu/cpu7/topology/thread_siblings_list ]]; then
+    echo "Deck CPU affinity unavailable; leaving scheduler defaults"
+    return
+  fi
+  if [[ "$(</sys/devices/system/cpu/cpu0/topology/thread_siblings_list)" != "0-1" ||
+        "$(</sys/devices/system/cpu/cpu2/topology/thread_siblings_list)" != "2-3" ||
+        "$(</sys/devices/system/cpu/cpu4/topology/thread_siblings_list)" != "4-5" ||
+        "$(</sys/devices/system/cpu/cpu6/topology/thread_siblings_list)" != "6-7" ]]; then
+    echo "Unexpected CPU topology; leaving scheduler defaults"
+    return
+  fi
+
+  local game_pid=""
+  local -A pinned=()
+  for _ in $(seq 1 300); do
+    game_pid="$(pgrep -u "${UID}" -n -f "^${binary} --game ${eboot} " || true)"
+    [[ -n "${game_pid}" ]] && break
+    sleep 0.1
+  done
+  if [[ -z "${game_pid}" ]]; then
+    echo "Deck CPU affinity could not find the launched emulator"
+    return
+  fi
+
+  echo "Applying Deck CPU affinity to emulator PID ${game_pid}"
+  while [[ -d "/proc/${game_pid}/task" ]]; do
+    local task tid name desired
+    for task in /proc/${game_pid}/task/*; do
+      [[ -r "${task}/comm" ]] || continue
+      tid="${task##*/}"
+      name="$(<"${task}/comm")"
+      case "${name}" in
+        shadPS4:GpuComm) desired="2" ;;
+        Game:Main) desired="4" ;;
+        JobWorker*) desired="0,1,6,7" ;;
+        *) continue ;;
+      esac
+      [[ "${pinned[${tid}]:-}" == "${desired}" ]] && continue
+      if taskset -pc "${desired}" "${tid}" >/dev/null 2>&1; then
+        pinned[${tid}]="${desired}"
+        echo "Pinned ${name} (${tid}) to CPU ${desired}"
+      fi
+    done
+    sleep 0.25
+  done
+}
+
 collect_results() {
   local exit_status="$1"
+  if [[ -n "${affinity_pid}" ]]; then
+    kill "${affinity_pid}" 2>/dev/null || true
+    wait "${affinity_pid}" 2>/dev/null || true
+  fi
   echo "${exit_status}" >"${run_dir}/exit-status.txt"
   if [[ -d "${shad_user}/log" ]]; then
     find "${shad_user}/log" -maxdepth 1 -type f -newer "${run_dir}/started.marker" \
@@ -148,6 +205,10 @@ echo "Visible ${variant} run; evidence will be saved to ${run_dir}"
 # assertion. Runtime logs and MangoHud evidence are preserved separately, so do not generate a core
 # during normal foreground testing.
 ulimit -c 0
+if [[ "${variant}" == "fork" && "${SECOND_SON_CPU_AFFINITY:-1}" == "1" ]]; then
+  apply_deck_cpu_affinity >"${run_dir}/affinity.log" 2>&1 &
+  affinity_pid=$!
+fi
 set +e
 XDG_DATA_HOME="${xdg_data}" MANGOHUD_CONFIGFILE="${mangohud_config}" \
   SDL_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT="${SDL_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT:-0x28de/0x1205}" \

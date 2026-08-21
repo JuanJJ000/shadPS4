@@ -97,6 +97,9 @@ session.
   without a Vulkan allocation failure.
 - PR 10 targets the fork's `deck-second-son` branch with the validated stencil, readback, audio,
   motion-helper, and foreground launcher changes.
+- Issue 11 now includes precise-readback request, wait-time, hot-page, and CPU call-stack evidence.
+- Issue 12 tracks the independently measured Deck CPU-affinity improvement while the deeper
+  readback work remains open in issue 11.
 
 ## Local code changes
 
@@ -201,6 +204,22 @@ session.
 - The shortcut uses the isolated fork profile and autosave. It does not replace, modify, or launch
   the preserved RPCS3/inFAMOUS 1 installation.
 
+### Steam Deck CPU topology
+
+- Live thread sampling showed `Game:Main` and `shadPS4:GpuComm` were frequently scheduled on CPUs 1
+  and 0, which are SMT siblings on the same physical Deck core. The five lighter `JobWorker*`
+  threads also migrated onto the sibling CPUs of manually isolated hot threads and erased the gain.
+- The Second Son wrapper now follows only its foreground emulator child, pins `shadPS4:GpuComm` to
+  CPU 2, pins `Game:Main` to CPU 4, and confines `JobWorker*` to CPUs 0, 1, 6, and 7. Audio,
+  presentation, operating-system, and Gamescope threads remain under the normal scheduler.
+- The helper is title-scoped, opt-out with `SECOND_SON_CPU_AFFINITY=0`, requires no root access,
+  applies each thread mask once, and exits with the game. It does not disable SMT or change global
+  CPU governors, clocks, or power limits.
+- In the same visible cannery scene, a 30-second unpinned sample measured 5.627 FPS and 178.3 ms
+  mean frame time. Isolating the two hot threads plus workers measured 6.257 FPS and 160.6 ms, an
+  11.2% mean-FPS gain. Allowing workers to roam again fell to 5.662 FPS, confirming sibling
+  contention rather than run-to-run noise.
+
 ## Runtime results
 
 - The legally dumped CUSA00223 package installs and launches from Steam Gaming Mode into foreground
@@ -220,6 +239,14 @@ session.
   MangoHud VRAM, and roughly 9 GiB total system RAM. No Vulkan device loss or allocation failure was
   recorded. Buffer GC ran periodically and the runtime log remained below 700 lines instead of
   repeating tens of thousands of identical oversized-buffer warnings.
+- The clean merged-source binary with automatic affinity launched through Steam into correct
+  foreground gameplay in run `20260820-230413-fork`. Its later 30-second sample measured 7.202 FPS
+  and 149.6 ms mean frame time; all seven target thread masks were verified and no fatal marker was
+  logged.
+- Readback profiling showed that the two hottest 4 KiB pages are predominantly CPU write faults
+  into GPU-owned device-local buffers. A recent-page batch prototype increased the fault storm, and
+  a narrow-hot-write prototype increased synchronization frequency without improving FPS. Both
+  experiments were fully reverted and are retained only as run evidence.
 - Remaining limitation: the correctness path is substantially below real-time on the Steam Deck.
   Precise GPU-to-CPU readbacks dominate frame time, so 30 FPS is not yet achieved even though the
   title is now visually correct, audible, controller-connected, saveable, and in gameplay.
