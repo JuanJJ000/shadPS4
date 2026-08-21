@@ -289,6 +289,20 @@ session.
   repeatable caller set for the next bounded experiment without claiming that the call sites are
   themselves safe to bypass.
 
+### Precise-readback operand context
+
+- Issue 44 follows the dominant `libc.prx+0x45dfe` write site, whose exact instruction is
+  `rep movsq` inside a memmove-like routine. A faulting instruction alone does not reveal the
+  original copy length, remaining qwords, source, destination, or game call path.
+- The existing opt-in counter now snapshots the x86-64 integer registers from the already supplied
+  fault context and copies those values through the synchronous GpuComm callback. The signal
+  handler still performs no memory dereference, allocation, formatting, or logging.
+- The bounded hot-site table records interval ranges for `RCX` and `RDX` plus the last source,
+  destination, frame, and stack values. The summarizer remains compatible with logs that have no
+  operand context.
+- This is still measurement only. A foreground run must prove stable operand ranges and unchanged
+  gameplay before any separate optimization is designed.
+
 ## Runtime results
 
 - The legally dumped CUSA00223 package installs and launches from Steam Gaming Mode into foreground

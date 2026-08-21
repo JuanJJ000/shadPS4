@@ -1117,22 +1117,22 @@ u32 Rasterizer::ReadDataFromGds(u32 gds_offset) {
     return value;
 }
 
-bool Rasterizer::InvalidateMemory(VAddr addr, u64 size, VAddr fault_pc) {
+bool Rasterizer::InvalidateMemory(VAddr addr, u64 size, Common::FaultContext fault_context) {
     if (!IsMapped(addr, size)) {
         // Not GPU mapped memory, can skip invalidation logic entirely.
         return false;
     }
-    buffer_cache.InvalidateMemory(addr, size, fault_pc);
+    buffer_cache.InvalidateMemory(addr, size, fault_context);
     texture_cache.InvalidateMemory(addr, size);
     return true;
 }
 
-bool Rasterizer::ReadMemory(VAddr addr, u64 size, VAddr fault_pc) {
+bool Rasterizer::ReadMemory(VAddr addr, u64 size, Common::FaultContext fault_context) {
     if (!IsMapped(addr, size)) {
         // Not GPU mapped memory, can skip invalidation logic entirely.
         return false;
     }
-    buffer_cache.ReadMemory(addr, size, false, fault_pc);
+    buffer_cache.ReadMemory(addr, size, false, fault_context);
     return true;
 }
 

@@ -113,21 +113,24 @@ BufferCache::BufferCache(const Vulkan::Instance& instance_, Vulkan::Scheduler& s
 
 BufferCache::~BufferCache() = default;
 
-void BufferCache::InvalidateMemory(VAddr device_addr, u64 size, VAddr fault_pc) {
+void BufferCache::InvalidateMemory(VAddr device_addr, u64 size,
+                                   Common::FaultContext fault_context) {
     if (!IsRegionRegistered(device_addr, size)) {
         return;
     }
-    memory_tracker->InvalidateRegion(device_addr, size, [this, device_addr, size, fault_pc] {
-        ReadMemory(device_addr, size, true, fault_pc);
+    memory_tracker->InvalidateRegion(device_addr, size, [this, device_addr, size, fault_context] {
+        ReadMemory(device_addr, size, true, fault_context);
     });
 }
 
-void BufferCache::ReadMemory(VAddr device_addr, u64 size, bool is_write, VAddr fault_pc) {
+void BufferCache::ReadMemory(VAddr device_addr, u64 size, bool is_write,
+                             Common::FaultContext fault_context) {
     const u64 outstanding_depth =
         precise_readback_stats_enabled
             ? precise_readback_outstanding.fetch_add(1, std::memory_order_relaxed) + 1
             : 0;
-    liverpool->SendCommand<true>([this, device_addr, size, is_write, fault_pc, outstanding_depth] {
+    liverpool->SendCommand<true>([this, device_addr, size, is_write, fault_context,
+                                  outstanding_depth] {
         SCOPE_EXIT {
             if (outstanding_depth != 0) {
                 precise_readback_outstanding.fetch_sub(1, std::memory_order_relaxed);
@@ -160,14 +163,15 @@ void BufferCache::ReadMemory(VAddr device_addr, u64 size, bool is_write, VAddr f
             memory_tracker->MarkRegionAsCpuModified(device_addr, size);
         }
         if (precise_readback_stats_enabled) {
-            RecordPreciseReadbackStats(device_addr, size, is_write, fault_pc, outstanding_depth,
-                                       request_sample);
+            RecordPreciseReadbackStats(device_addr, size, is_write, fault_context,
+                                       outstanding_depth, request_sample);
         }
     });
 }
 
 void BufferCache::RecordPreciseReadbackStats(VAddr device_addr, u64 size, bool is_write,
-                                             VAddr fault_pc, u64 outstanding_depth,
+                                             const Common::FaultContext& fault_context,
+                                             u64 outstanding_depth,
                                              const ReadbackDownloadSample& sample) {
     precise_readback_sequence++;
     precise_readback_requests++;
@@ -213,13 +217,13 @@ void BufferCache::RecordPreciseReadbackStats(VAddr device_addr, u64 size, bool i
     page->interval_requests++;
     page->interval_writes += is_write;
 
-    if (fault_pc != 0) {
-        auto site =
-            std::ranges::find_if(precise_readback_hot_fault_sites,
-                                 [fault_pc, page_address](const ReadbackHotFaultSite& candidate) {
-                                     return candidate.valid && candidate.fault_pc == fault_pc &&
-                                            candidate.page_address == page_address;
-                                 });
+    if (fault_context.rip != 0) {
+        auto site = std::ranges::find_if(
+            precise_readback_hot_fault_sites,
+            [&fault_context, page_address](const ReadbackHotFaultSite& candidate) {
+                return candidate.valid && candidate.fault_pc == fault_context.rip &&
+                       candidate.page_address == page_address;
+            });
         if (site == precise_readback_hot_fault_sites.end()) {
             site = std::ranges::find_if(
                 precise_readback_hot_fault_sites,
@@ -229,12 +233,30 @@ void BufferCache::RecordPreciseReadbackStats(VAddr device_addr, u64 size, bool i
             site = std::ranges::min_element(precise_readback_hot_fault_sites, {},
                                             &ReadbackHotFaultSite::last_request);
         }
-        if (!site->valid || site->fault_pc != fault_pc || site->page_address != page_address) {
+        if (!site->valid || site->fault_pc != fault_context.rip ||
+            site->page_address != page_address) {
             *site = ReadbackHotFaultSite{
-                .fault_pc = fault_pc,
+                .fault_pc = fault_context.rip,
                 .page_address = page_address,
+                .last_context = fault_context,
+                .min_rdx = fault_context.rdx,
+                .max_rdx = fault_context.rdx,
+                .min_rcx = fault_context.rcx,
+                .max_rcx = fault_context.rcx,
                 .valid = true,
             };
+        }
+        site->last_context = fault_context;
+        if (site->interval_requests == 0) {
+            site->min_rdx = fault_context.rdx;
+            site->max_rdx = fault_context.rdx;
+            site->min_rcx = fault_context.rcx;
+            site->max_rcx = fault_context.rcx;
+        } else {
+            site->min_rdx = std::min(site->min_rdx, fault_context.rdx);
+            site->max_rdx = std::max(site->max_rdx, fault_context.rdx);
+            site->min_rcx = std::min(site->min_rcx, fault_context.rcx);
+            site->max_rcx = std::max(site->max_rcx, fault_context.rcx);
         }
         site->last_request = precise_readback_sequence;
         site->interval_requests++;
@@ -339,7 +361,10 @@ void BufferCache::LogPreciseReadbackStats() {
              "finish_share_pct={:.1f} "
              "amplification={:.1f}x hot=[{:#x}:{}(w{}), {:#x}:{}(w{}), {:#x}:{}(w{})] "
              "hot_sites=[{:#x}@{:#x}:{}(w{}), {:#x}@{:#x}:{}(w{}), "
-             "{:#x}@{:#x}:{}(w{})]",
+             "{:#x}@{:#x}:{}(w{})] "
+             "top_context=[{:#x}@{:#x}:{}(w{});rax:{:#x};rcx:{:#x};rdx:{:#x};"
+             "rsi:{:#x};rdi:{:#x};rbp:{:#x};rsp:{:#x};rcx_range:{:#x}-{:#x};"
+             "rdx_range:{:#x}-{:#x}]",
              precise_readback_window_size / 1_KB, precise_readback_requests,
              precise_readback_writes, precise_readback_requests - precise_readback_writes,
              precise_readback_bounded_repeats, tracked_pages, precise_readback_requested_bytes,
@@ -354,7 +379,12 @@ void BufferCache::LogPreciseReadbackStats() {
              first_site.page_address, first_site.interval_requests, first_site.interval_writes,
              second_site.fault_pc, second_site.page_address, second_site.interval_requests,
              second_site.interval_writes, third_site.fault_pc, third_site.page_address,
-             third_site.interval_requests, third_site.interval_writes);
+             third_site.interval_requests, third_site.interval_writes, first_site.fault_pc,
+             first_site.page_address, first_site.interval_requests, first_site.interval_writes,
+             first_site.last_context.rax, first_site.last_context.rcx, first_site.last_context.rdx,
+             first_site.last_context.rsi, first_site.last_context.rdi, first_site.last_context.rbp,
+             first_site.last_context.rsp, first_site.min_rcx, first_site.max_rcx,
+             first_site.min_rdx, first_site.max_rdx);
 
     precise_readback_requests = 0;
     precise_readback_queued_requests = 0;
