@@ -278,8 +278,16 @@ session.
   older logs that contain only hot data pages.
 - This is measurement only: the 512 KiB coherence window, synchronous GPU completion, page
   protection, tracker transitions, and all stats-off synchronization behavior remain unchanged.
-- Foreground proof must identify stable hot pairs without changing rendering, controls, audio,
-  saves, or exit behavior before this diagnostic is accepted.
+- A 156-second foreground Steam/Gamescope run reached correctly lit cannery gameplay, kept the
+  stereo 48 kHz output path, and exited with status 0. Its final eight intervals measured 1,024
+  readback requests, 545 writes, 479 reads, and 3,327.092 ms spent finishing readbacks.
+- Two stable write sites dominated the bounded sample: `libc.prx+0x45dfe` wrote page
+  `0x2edaf8000` 272 times, while `eboot.bin+0x349827` wrote page `0x24bf86000` 136 times.
+  `eboot.bin+0x350ca4` was the repeated read-side caller, with its data page changing over time.
+  These module identities come from the exact loader ranges recorded in the same run.
+- The diagnostic therefore passed its behavior-neutral foreground gate. It identifies a small,
+  repeatable caller set for the next bounded experiment without claiming that the call sites are
+  themselves safe to bypass.
 
 ## Runtime results
 
