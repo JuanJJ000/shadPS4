@@ -6,7 +6,26 @@ repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 game_root="${SECOND_SON_ROOT:-/home/deck/Games/shadPS4-games/CUSA00223}"
 eboot="${SECOND_SON_EBOOT:-${game_root}/eboot.bin}"
 data_root="${SECOND_SON_DATA_ROOT:-/home/deck/Games/shadPS4-second-son}"
-readback_stats="${SECOND_SON_READBACK_STATS:-1}"
+readback_stats_file="${SECOND_SON_READBACK_STATS_FILE:-${data_root}/readback-stats.txt}"
+readback_stats_source="default"
+if [[ -n "${SECOND_SON_READBACK_STATS:-}" ]]; then
+  readback_stats="${SECOND_SON_READBACK_STATS}"
+  readback_stats_source="environment"
+elif [[ -r "${readback_stats_file}" ]]; then
+  IFS= read -r readback_stats <"${readback_stats_file}" || true
+  readback_stats="${readback_stats:-1}"
+  readback_stats_source="${readback_stats_file}"
+else
+  readback_stats="1"
+fi
+case "${readback_stats}" in
+  0|1) ;;
+  *)
+    echo "Ignoring invalid precise-readback stats value '${readback_stats}'; expected 0 or 1" >&2
+    readback_stats="1"
+    readback_stats_source="invalid-fallback"
+    ;;
+esac
 readback_stats_interval="${SECOND_SON_READBACK_STATS_INTERVAL:-128}"
 sleepq_stats_file="${SECOND_SON_SLEEPQ_STATS_FILE:-${data_root}/sleepq-stats.txt}"
 sleepq_stats_source="default"
@@ -219,6 +238,7 @@ EOF
   echo "binary=${binary}"
   echo "eboot=${eboot}"
   echo "precise_readback_stats=${readback_stats}"
+  echo "precise_readback_stats_source=${readback_stats_source}"
   echo "precise_readback_stats_interval=${readback_stats_interval}"
   echo "precise_readback_window_kb=${readback_window_kb}"
   echo "precise_readback_window_source=${readback_window_source}"
