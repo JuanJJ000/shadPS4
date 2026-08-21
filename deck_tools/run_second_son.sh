@@ -153,8 +153,18 @@ apply_deck_cpu_affinity() {
   fi
 
   echo "Applying Deck CPU affinity to emulator PID ${game_pid}"
-  while [[ -d "/proc/${game_pid}/task" ]]; do
-    local task tid name desired
+  while [[ -r "/proc/${game_pid}/status" ]]; do
+    local task tid name desired process_state=""
+    while read -r key value _; do
+      if [[ "${key}" == "State:" ]]; then
+        process_state="${value}"
+        break
+      fi
+    done <"/proc/${game_pid}/status"
+    if [[ "${process_state}" == "Z" || "${process_state}" == "X" ]]; then
+      echo "Emulator entered terminal state ${process_state}; stopping affinity watcher"
+      break
+    fi
     for task in /proc/${game_pid}/task/*; do
       [[ -r "${task}/comm" ]] || continue
       tid="${task##*/}"
