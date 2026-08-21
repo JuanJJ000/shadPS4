@@ -85,6 +85,7 @@ session.
 - Issue 7: preserve the stencil comparison reference when stencil writes are masked off.
 - Issue 8: opt-in PS4 multichannel-to-stereo downmix for the Deck speaker path.
 - Issue 9: configurable controller-pose helpers for motion-only tutorials.
+- Issue 11: reduce the remaining Precise-readback synchronization cost.
 - PR 6: conservative buffer-cache LRU collection merged into the fork's `main` at `293c1ee6`.
 - Branch `fix/gfx-command-copy-arena` pushed to the fork at commit `9724acc4`; draft PR creation is
   intentionally deferred to a later GitHub workflow turn.
@@ -94,6 +95,8 @@ session.
   intentionally deferred to a later GitHub workflow turn.
 - Issue 1 is complete: PR 6 merged and foreground Second Son runs now report bounded GC activity
   without a Vulkan allocation failure.
+- PR 10 targets the fork's `deck-second-son` branch with the validated stencil, readback, audio,
+  motion-helper, and foreground launcher changes.
 
 ## Local code changes
 
