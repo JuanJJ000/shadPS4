@@ -119,10 +119,10 @@ Scheduler::FinishTiming Scheduler::FinishWithTiming(bool split_prior_work) {
         const auto prior_wait_started = std::chrono::steady_clock::now();
         Wait(presubmit_tick - 1);
         const auto prior_wait_finished = std::chrono::steady_clock::now();
-        prior_wait_nanoseconds = static_cast<u64>(
-            std::chrono::duration_cast<std::chrono::nanoseconds>(prior_wait_finished -
-                                                                 prior_wait_started)
-                .count());
+        prior_wait_nanoseconds =
+            static_cast<u64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                 prior_wait_finished - prior_wait_started)
+                                 .count());
     }
     const auto submit_started = std::chrono::steady_clock::now();
     SubmitInfo info{};
@@ -148,6 +148,7 @@ Scheduler::FinishTiming Scheduler::FinishWithTiming(bool split_prior_work) {
 
 bool Scheduler::EnableCommandBufferTiming() {
     if (command_buffer_timing_pool) {
+        guest_work_tracking_enabled = true;
         return true;
     }
     const auto queue_families = instance.GetPhysicalDevice().getQueueFamilyProperties();
@@ -170,6 +171,7 @@ bool Scheduler::EnableCommandBufferTiming() {
         return false;
     }
     command_buffer_timing_pool = std::move(pool);
+    guest_work_tracking_enabled = true;
     BeginCommandBufferTiming();
     return command_buffer_timing_current_slot != InvalidCommandBufferTimingSlot;
 }
@@ -186,6 +188,8 @@ bool Scheduler::MarkCommandBufferReadbackStart() {
     const u32 query = command_buffer_timing_current_slot * CommandBufferTimingQueriesPerSlot + 1;
     current_cmdbuf.writeTimestamp2(vk::PipelineStageFlagBits2::eAllCommands,
                                    *command_buffer_timing_pool, query);
+    slot.guest_draws = current_guest_draws;
+    slot.guest_dispatches = current_guest_dispatches;
     slot.readback_marked = true;
     return true;
 }
@@ -206,8 +210,14 @@ void Scheduler::MarkCommandBufferReadbackEnd() {
 
 Scheduler::CommandBufferTiming Scheduler::ConsumeCommandBufferTiming(u64 gpu_tick) {
     CommandBufferTiming timing{
+        .early_submit_count = pending_early_submit_count,
+        .early_submit_draws = pending_early_submit_draws,
+        .early_submit_dispatches = pending_early_submit_dispatches,
         .slot_exhaustions = command_buffer_timing_slot_exhaustions,
     };
+    pending_early_submit_count = 0;
+    pending_early_submit_draws = 0;
+    pending_early_submit_dispatches = 0;
     command_buffer_timing_slot_exhaustions = 0;
     if (!command_buffer_timing_pool) {
         timing.failures = 1;
@@ -219,6 +229,8 @@ Scheduler::CommandBufferTiming Scheduler::ConsumeCommandBufferTiming(u64 gpu_tic
             continue;
         }
         const u32 first_query = index * CommandBufferTimingQueriesPerSlot;
+        timing.guest_draws_before_readback = slot.guest_draws;
+        timing.guest_dispatches_before_readback = slot.guest_dispatches;
         std::array<u64, CommandBufferTimingQueriesPerSlot> timestamps{};
         const auto result = instance.GetDevice().getQueryPoolResults(
             *command_buffer_timing_pool, first_query, timestamps.size(), sizeof(timestamps),
@@ -256,6 +268,40 @@ Scheduler::CommandBufferTiming Scheduler::ConsumeCommandBufferTiming(u64 gpu_tic
     return timing;
 }
 
+void Scheduler::SetGuestWorkSubmitBudget(u32 budget) {
+    guest_work_submit_budget = budget;
+}
+
+void Scheduler::RecordGuestDraw() {
+    if (!guest_work_tracking_enabled) {
+        return;
+    }
+    ++current_guest_draws;
+    if (guest_work_submit_budget == 0 ||
+        current_guest_draws + current_guest_dispatches < guest_work_submit_budget) {
+        return;
+    }
+    ++pending_early_submit_count;
+    pending_early_submit_draws += current_guest_draws;
+    pending_early_submit_dispatches += current_guest_dispatches;
+    Flush();
+}
+
+void Scheduler::RecordGuestDispatch() {
+    if (!guest_work_tracking_enabled) {
+        return;
+    }
+    ++current_guest_dispatches;
+    if (guest_work_submit_budget == 0 ||
+        current_guest_draws + current_guest_dispatches < guest_work_submit_budget) {
+        return;
+    }
+    ++pending_early_submit_count;
+    pending_early_submit_draws += current_guest_draws;
+    pending_early_submit_dispatches += current_guest_dispatches;
+    Flush();
+}
+
 void Scheduler::Wait(u64 tick) {
     if (tick >= master_semaphore.CurrentTick()) {
         // Make sure we are not waiting for the current tick without signalling
@@ -281,6 +327,8 @@ void Scheduler::AllocateWorkerCommandBuffers() {
 
     current_cmdbuf = command_pool.Commit();
     Check(current_cmdbuf.begin(begin_info));
+    current_guest_draws = 0;
+    current_guest_dispatches = 0;
     BeginCommandBufferTiming();
 
     // Invalidate dynamic state so it gets applied to the new command buffer.

@@ -61,6 +61,13 @@ INTEGER_FIELDS = {
     "gpu_envelope_samples",
     "gpu_envelope_failures",
     "gpu_envelope_slot_exhaustions",
+    "guest_work_budget",
+    "guest_draws_before_readback",
+    "guest_dispatches_before_readback",
+    "empty_guest_work_readbacks",
+    "early_submit_count",
+    "early_submit_draws",
+    "early_submit_dispatches",
 }
 REQUIRED_FIELDS = {
     "requests",
@@ -119,6 +126,13 @@ def parse_intervals(text: str) -> list[dict[str, object]]:
         fields.setdefault("gpu_envelope_slot_exhaustions", 0)
         fields.setdefault("gpu_before_readback_total_ms", 0.0)
         fields.setdefault("gpu_envelope_total_ms", 0.0)
+        fields.setdefault("guest_work_budget", 0)
+        fields.setdefault("guest_draws_before_readback", 0)
+        fields.setdefault("guest_dispatches_before_readback", 0)
+        fields.setdefault("empty_guest_work_readbacks", 0)
+        fields.setdefault("early_submit_count", 0)
+        fields.setdefault("early_submit_draws", 0)
+        fields.setdefault("early_submit_dispatches", 0)
         for name in (
             "discard_probe_hits",
             "discard_probe_valid",
@@ -256,6 +270,12 @@ def summarize(intervals: list[dict[str, object]], tail_count: int) -> dict[str, 
             "gpu_envelope_samples",
             "gpu_envelope_failures",
             "gpu_envelope_slot_exhaustions",
+            "guest_draws_before_readback",
+            "guest_dispatches_before_readback",
+            "empty_guest_work_readbacks",
+            "early_submit_count",
+            "early_submit_draws",
+            "early_submit_dispatches",
         )
     }
     finish_total_ms = sum(float(interval["finish_total_ms"]) for interval in selected)
@@ -273,6 +293,7 @@ def summarize(intervals: list[dict[str, object]], tail_count: int) -> dict[str, 
     site_windows = sorted(
         {int(interval["site_window_kib"]) for interval in selected if interval["site_window_kib"]}
     )
+    work_budgets = sorted({int(interval["guest_work_budget"]) for interval in selected})
     dirty_probe_requests = (
         totals["discard_probe_valid"] - totals["discard_zero_dirty_requests"]
     )
@@ -383,6 +404,7 @@ def summarize(intervals: list[dict[str, object]], tail_count: int) -> dict[str, 
         "tail_count": tail_count,
         "window_kib": windows[0] if len(windows) == 1 else windows,
         "site_window_kib": site_windows[0] if len(site_windows) == 1 else site_windows,
+        "guest_work_budget": work_budgets[0] if len(work_budgets) == 1 else work_budgets,
         **totals,
         "finish_total_ms": round(finish_total_ms, 3),
         "finish_avg_ms_per_request": round(finish_total_ms / requests, 6) if requests else 0.0,
@@ -424,6 +446,13 @@ def summarize(intervals: list[dict[str, object]], tail_count: int) -> dict[str, 
         if requested_bytes
         else 0.0,
         "copies_per_request": round(totals["copies"] / requests, 3) if requests else 0.0,
+        "guest_work_per_early_submit": round(
+            (totals["early_submit_draws"] + totals["early_submit_dispatches"])
+            / totals["early_submit_count"],
+            3,
+        )
+        if totals["early_submit_count"]
+        else 0.0,
         "discard_valid_pct": round(
             totals["discard_probe_valid"] * 100.0 / totals["discard_probe_hits"], 3
         )
@@ -516,6 +545,18 @@ def render_text(log_path: Path, result: dict[str, object]) -> str:
             result["gpu_before_readback_total_ms"],
             result["gpu_envelope_total_ms"],
             result["gpu_envelope_share_current_pct"],
+        ),
+        "guest_work_budget={} draws_before_readback={} dispatches_before_readback={} "
+        "empty_readbacks={} early_submits={} early_submit_draws={} "
+        "early_submit_dispatches={} work_per_early_submit={}".format(
+            result["guest_work_budget"],
+            result["guest_draws_before_readback"],
+            result["guest_dispatches_before_readback"],
+            result["empty_guest_work_readbacks"],
+            result["early_submit_count"],
+            result["early_submit_draws"],
+            result["early_submit_dispatches"],
+            result["guest_work_per_early_submit"],
         ),
         f"bounded_repeats={result['bounded_repeats']} no_downloads={result['no_downloads']}",
     ]
