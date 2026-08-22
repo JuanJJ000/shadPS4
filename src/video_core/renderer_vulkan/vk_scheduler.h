@@ -358,14 +358,17 @@ public:
     struct CommandBufferTiming {
         u64 before_readback_nanoseconds{};
         u64 envelope_nanoseconds{};
-        u64 guest_draws_before_readback{};
-        u64 guest_dispatches_before_readback{};
-        u64 early_submit_count{};
-        u64 early_submit_draws{};
-        u64 early_submit_dispatches{};
         u64 samples{};
         u64 failures{};
         u64 slot_exhaustions{};
+    };
+
+    struct GuestWorkCounters {
+        u64 draws_before_readback{};
+        u64 dispatches_before_readback{};
+        u64 early_submit_count{};
+        u64 early_submit_draws{};
+        u64 early_submit_dispatches{};
     };
 
     explicit Scheduler(const Instance& instance);
@@ -399,8 +402,12 @@ public:
     [[nodiscard]] CommandBufferTiming ConsumeCommandBufferTiming(u64 gpu_tick);
 
     /// Sets an opt-in guest draw/dispatch budget for submission without waiting. Zero disables
-    /// early submission while retaining behavior-neutral command-buffer work counters.
+    /// early submission. Command-buffer timing may retain behavior-neutral work counters at zero.
     void SetGuestWorkSubmitBudget(u32 budget);
+
+    /// Snapshots residual guest work in the current command buffer and consumes early-submit
+    /// counters accumulated since the preceding precise readback.
+    [[nodiscard]] GuestWorkCounters ConsumeGuestWorkCounters();
 
     /// Records one successfully emitted guest draw or dispatch command. When the opt-in budget is
     /// reached, the current command buffer is submitted without waiting.
@@ -507,8 +514,6 @@ private:
     static constexpr u32 InvalidCommandBufferTimingSlot = ~u32{0};
     struct CommandBufferTimingSlot {
         u64 gpu_tick{};
-        u64 guest_draws{};
-        u64 guest_dispatches{};
         bool in_use{};
         bool readback_marked{};
     };

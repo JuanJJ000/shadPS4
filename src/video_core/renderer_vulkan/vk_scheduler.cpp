@@ -188,8 +188,6 @@ bool Scheduler::MarkCommandBufferReadbackStart() {
     const u32 query = command_buffer_timing_current_slot * CommandBufferTimingQueriesPerSlot + 1;
     current_cmdbuf.writeTimestamp2(vk::PipelineStageFlagBits2::eAllCommands,
                                    *command_buffer_timing_pool, query);
-    slot.guest_draws = current_guest_draws;
-    slot.guest_dispatches = current_guest_dispatches;
     slot.readback_marked = true;
     return true;
 }
@@ -210,14 +208,8 @@ void Scheduler::MarkCommandBufferReadbackEnd() {
 
 Scheduler::CommandBufferTiming Scheduler::ConsumeCommandBufferTiming(u64 gpu_tick) {
     CommandBufferTiming timing{
-        .early_submit_count = pending_early_submit_count,
-        .early_submit_draws = pending_early_submit_draws,
-        .early_submit_dispatches = pending_early_submit_dispatches,
         .slot_exhaustions = command_buffer_timing_slot_exhaustions,
     };
-    pending_early_submit_count = 0;
-    pending_early_submit_draws = 0;
-    pending_early_submit_dispatches = 0;
     command_buffer_timing_slot_exhaustions = 0;
     if (!command_buffer_timing_pool) {
         timing.failures = 1;
@@ -229,8 +221,6 @@ Scheduler::CommandBufferTiming Scheduler::ConsumeCommandBufferTiming(u64 gpu_tic
             continue;
         }
         const u32 first_query = index * CommandBufferTimingQueriesPerSlot;
-        timing.guest_draws_before_readback = slot.guest_draws;
-        timing.guest_dispatches_before_readback = slot.guest_dispatches;
         std::array<u64, CommandBufferTimingQueriesPerSlot> timestamps{};
         const auto result = instance.GetDevice().getQueryPoolResults(
             *command_buffer_timing_pool, first_query, timestamps.size(), sizeof(timestamps),
@@ -270,6 +260,21 @@ Scheduler::CommandBufferTiming Scheduler::ConsumeCommandBufferTiming(u64 gpu_tic
 
 void Scheduler::SetGuestWorkSubmitBudget(u32 budget) {
     guest_work_submit_budget = budget;
+    guest_work_tracking_enabled = budget != 0 || static_cast<bool>(command_buffer_timing_pool);
+}
+
+Scheduler::GuestWorkCounters Scheduler::ConsumeGuestWorkCounters() {
+    const GuestWorkCounters counters{
+        .draws_before_readback = current_guest_draws,
+        .dispatches_before_readback = current_guest_dispatches,
+        .early_submit_count = pending_early_submit_count,
+        .early_submit_draws = pending_early_submit_draws,
+        .early_submit_dispatches = pending_early_submit_dispatches,
+    };
+    pending_early_submit_count = 0;
+    pending_early_submit_draws = 0;
+    pending_early_submit_dispatches = 0;
+    return counters;
 }
 
 void Scheduler::RecordGuestDraw() {
