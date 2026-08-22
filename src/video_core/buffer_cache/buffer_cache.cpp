@@ -152,6 +152,12 @@ BufferCache::BufferCache(const Vulkan::Instance& instance_, Vulkan::Scheduler& s
         LOG_INFO(Render_Vulkan, "Precise readback window set to {} KiB",
                  precise_readback_window_size / 1_KB);
     }
+    scheduler.SetGuestWorkSubmitBudget(precise_readback_guest_work_submit_budget);
+    if (precise_readback_guest_work_submit_budget != 0) {
+        LOG_INFO(Render_Vulkan,
+                 "Precise readback early submits enabled with an independent {}-command budget",
+                 precise_readback_guest_work_submit_budget);
+    }
     if (precise_readback_phase_timing_enabled) {
         LOG_INFO(Render_Vulkan,
                  "Precise readback phase timing enabled; prior GPU work is completed before the "
@@ -180,7 +186,6 @@ BufferCache::BufferCache(const Vulkan::Instance& instance_, Vulkan::Scheduler& s
                          precise_readback_gpu_timestamp_period_ns);
                 precise_readback_gpu_envelope_enabled = scheduler.EnableCommandBufferTiming();
                 if (precise_readback_gpu_envelope_enabled) {
-                    scheduler.SetGuestWorkSubmitBudget(precise_readback_guest_work_submit_budget);
                     LOG_INFO(Render_Vulkan,
                              "Precise readback command-buffer envelope timestamps enabled with "
                              "64 reusable slots and a {}-command early-submit budget",
@@ -388,9 +393,10 @@ void BufferCache::RecordPreciseReadbackStats(VAddr device_addr, u64 size, bool i
     precise_readback_gpu_envelope_nanoseconds += sample.gpu_envelope_nanoseconds;
     precise_readback_guest_draws_before_readback += sample.guest_draws_before_readback;
     precise_readback_guest_dispatches_before_readback += sample.guest_dispatches_before_readback;
-    precise_readback_empty_guest_work_readbacks += sample.gpu_envelope_samples != 0 &&
-                                                   sample.guest_draws_before_readback == 0 &&
-                                                   sample.guest_dispatches_before_readback == 0;
+    precise_readback_empty_guest_work_readbacks +=
+        (precise_readback_guest_work_submit_budget != 0 ||
+         precise_readback_gpu_envelope_enabled) &&
+        sample.guest_draws_before_readback == 0 && sample.guest_dispatches_before_readback == 0;
     precise_readback_early_submit_count += sample.early_submit_count;
     precise_readback_early_submit_draws += sample.early_submit_draws;
     precise_readback_early_submit_dispatches += sample.early_submit_dispatches;
@@ -875,8 +881,9 @@ BufferCache::ReadbackDownloadSample BufferCache::DownloadBufferMemory(Buffer& bu
     const auto cmdbuf = scheduler.CommandBuffer();
     const bool measure_gpu_copy =
         measure_finish && static_cast<bool>(precise_readback_gpu_timestamp_pool);
-    const bool measure_gpu_envelope = measure_gpu_copy && precise_readback_gpu_envelope_enabled &&
-                                      scheduler.MarkCommandBufferReadbackStart();
+    const bool measure_gpu_envelope =
+        measure_finish && precise_readback_gpu_envelope_enabled &&
+        scheduler.MarkCommandBufferReadbackStart();
     if (measure_gpu_copy) {
         cmdbuf.resetQueryPool(*precise_readback_gpu_timestamp_pool, 0, 2);
         cmdbuf.writeTimestamp2(vk::PipelineStageFlagBits2::eAllCommands,
@@ -905,6 +912,10 @@ BufferCache::ReadbackDownloadSample BufferCache::DownloadBufferMemory(Buffer& bu
     if (measure_gpu_envelope) {
         scheduler.MarkCommandBufferReadbackEnd();
     }
+    const bool measure_guest_work =
+        precise_readback_guest_work_submit_budget != 0 || precise_readback_gpu_envelope_enabled;
+    const auto guest_work = measure_guest_work ? scheduler.ConsumeGuestWorkCounters()
+                                               : Vulkan::Scheduler::GuestWorkCounters{};
     const VAddr buffer_addr = buffer.CpuAddr();
     const auto write_data = [this, copies = std::move(copies), buffer_addr, device_addr, size,
                              download, offset, total_size_bytes]() {
@@ -969,15 +980,15 @@ BufferCache::ReadbackDownloadSample BufferCache::DownloadBufferMemory(Buffer& bu
         const auto envelope = scheduler.ConsumeCommandBufferTiming(finish_gpu_tick);
         sample.gpu_before_readback_nanoseconds = envelope.before_readback_nanoseconds;
         sample.gpu_envelope_nanoseconds = envelope.envelope_nanoseconds;
-        sample.guest_draws_before_readback = envelope.guest_draws_before_readback;
-        sample.guest_dispatches_before_readback = envelope.guest_dispatches_before_readback;
-        sample.early_submit_count = envelope.early_submit_count;
-        sample.early_submit_draws = envelope.early_submit_draws;
-        sample.early_submit_dispatches = envelope.early_submit_dispatches;
         sample.gpu_envelope_samples = envelope.samples;
         sample.gpu_envelope_failures = envelope.failures;
         sample.gpu_envelope_slot_exhaustions = envelope.slot_exhaustions;
     }
+    sample.guest_draws_before_readback = guest_work.draws_before_readback;
+    sample.guest_dispatches_before_readback = guest_work.dispatches_before_readback;
+    sample.early_submit_count = guest_work.early_submit_count;
+    sample.early_submit_draws = guest_work.early_submit_draws;
+    sample.early_submit_dispatches = guest_work.early_submit_dispatches;
     write_data();
     return sample;
 }
