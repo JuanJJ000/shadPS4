@@ -67,6 +67,26 @@ case "${readback_work_budget}" in
     readback_work_budget_source="invalid-fallback"
     ;;
 esac
+spinlock_stats_file="${SECOND_SON_SPINLOCK_STATS_FILE:-${data_root}/spinlock-stats.txt}"
+spinlock_stats_source="default"
+if [[ -n "${SECOND_SON_SPINLOCK_STATS:-}" ]]; then
+  spinlock_stats="${SECOND_SON_SPINLOCK_STATS}"
+  spinlock_stats_source="environment"
+elif [[ -r "${spinlock_stats_file}" ]]; then
+  IFS= read -r spinlock_stats <"${spinlock_stats_file}" || true
+  spinlock_stats="${spinlock_stats:-0}"
+  spinlock_stats_source="${spinlock_stats_file}"
+else
+  spinlock_stats="0"
+fi
+case "${spinlock_stats}" in
+  0|1) ;;
+  *)
+    echo "Ignoring invalid SpinLock statistics value '${spinlock_stats}'; expected 0 or 1" >&2
+    spinlock_stats="0"
+    spinlock_stats_source="invalid-fallback"
+    ;;
+esac
 sleepq_stats_file="${SECOND_SON_SLEEPQ_STATS_FILE:-${data_root}/sleepq-stats.txt}"
 sleepq_stats_source="default"
 if [[ -n "${SECOND_SON_SLEEPQ_STATS:-}" ]]; then
@@ -307,6 +327,8 @@ EOF
   echo "precise_readback_phase_timing_source=${readback_phase_timing_source}"
   echo "precise_readback_work_budget=${readback_work_budget}"
   echo "precise_readback_work_budget_source=${readback_work_budget_source}"
+  echo "spinlock_stats=${spinlock_stats}"
+  echo "spinlock_stats_source=${spinlock_stats_source}"
   echo "precise_readback_window_kb=${readback_window_kb}"
   echo "precise_readback_window_source=${readback_window_source}"
   echo "precise_readback_write_site_window=${readback_write_site_window}"
@@ -578,6 +600,7 @@ XDG_DATA_HOME="${xdg_data}" MANGOHUD_CONFIGFILE="${mangohud_config}" \
   SHADPS4_PRECISE_READBACK_STATS_INTERVAL="${SHADPS4_PRECISE_READBACK_STATS_INTERVAL:-${readback_stats_interval}}" \
   SHADPS4_PRECISE_READBACK_PHASE_TIMING="${SHADPS4_PRECISE_READBACK_PHASE_TIMING:-${readback_phase_timing}}" \
   SHADPS4_PRECISE_READBACK_WORK_BUDGET="${SHADPS4_PRECISE_READBACK_WORK_BUDGET:-${readback_work_budget}}" \
+  SHADPS4_SPINLOCK_STATS="${SHADPS4_SPINLOCK_STATS:-${spinlock_stats}}" \
   SHADPS4_PRECISE_READBACK_WINDOW_KB="${SHADPS4_PRECISE_READBACK_WINDOW_KB:-${readback_window_kb}}" \
   SHADPS4_PRECISE_READBACK_WRITE_SITE_WINDOW="${SHADPS4_PRECISE_READBACK_WRITE_SITE_WINDOW:-${readback_write_site_window}}" \
   SHADPS4_PRECISE_READBACK_WRITE_DISCARD_PROBE_PC="${SHADPS4_PRECISE_READBACK_WRITE_DISCARD_PROBE_PC:-${readback_write_discard_probe}}" \

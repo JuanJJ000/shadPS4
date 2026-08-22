@@ -120,7 +120,7 @@ static std::atomic<u64> sc_completed_acquisitions{};
 static std::atomic<u64> sc_stats_interval_started_nanoseconds{SteadyClockNanoseconds()};
 
 struct SleepQueueChain {
-    Common::SpinLock sc_lock;
+    Common::TaggedSpinLock<Common::SpinLockClass::SleepQueue> sc_lock;
     SleepqList sc_queues;
     int sc_type;
     u64 acquired_wall_nanoseconds{};

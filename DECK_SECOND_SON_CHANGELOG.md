@@ -602,6 +602,33 @@ session.
   evidence. Budget 256 is selected only after this independent phase-off proof. The result remains
   a stationary-scene improvement around 10 FPS, not whole-game or 30-FPS playability proof.
 
+### Post-readback SpinLock class attribution
+
+- Issue 84 re-profiled the accepted phase-off budget-256 build after synchronous readback Finish
+  fell to roughly 7% of sampled wall time. A bounded 15-second user-cycle profile attributed
+  30.80% to the GPU communication thread, 30.57% to the translated game main thread, and 35.51%
+  to the five job workers. `Common::SpinLock::lock` was the hottest named host symbol at 27.19%,
+  but the captured caller stacks did not identify the owning lock class.
+- Issue 85 / PR 86 adds fixed, off-by-default class counters instead of guessing. The four concrete
+  users are tagged as page tracking, region tracking, slab allocation, or sleep queue, with a
+  generic fallback. Enabled counters record acquisitions, contended acquisitions, local spin
+  iterations, maximum spins, try-lock attempts, and failures; they emit one compact record on the
+  existing readback-stat cadence and use no dynamic storage or per-acquisition logging.
+- The exact feature binary (`808a91f6`, 374,542,888 bytes, SHA-256
+  `052744cdf64bd5e1e04a26e93360d1ed417e0bbc8dc0dfab6dfefc19f47bf8c4`) completed clean
+  selector-off and selector-on foreground runs. Both retained correct cannery rendering,
+  controller slot 0, the main 48 kHz stereo output, cache closure, and exit 0. Selector-off emitted
+  no class records; selector-on emitted 98 reconciled intervals.
+- Across the enabled run, the sleep queue made 304,531 acquisitions, 70,455 of them contended
+  (23.136%), and accumulated 3,074,155,468 pause-loop iterations with a 950,536-iteration maximum.
+  The slab allocator made 100,030 acquisitions with zero measured contention or spins. Generic,
+  page-manager, and region-manager SpinLock buckets were zero; the latter two use the platform
+  adaptive-mutex path in this build.
+- Diagnostic overhead was bounded: enabled versus disabled changed final-600 median FPS by
+  -0.019% and median frame time by +0.019%; mean FPS changed -0.675%. This accepts the attribution
+  tool, not a performance change. The next gate is a sleep-queue-only bounded wait strategy, not a
+  global SpinLock replacement.
+
 ## Runtime results
 
 - The legally dumped CUSA00223 package installs and launches from Steam Gaming Mode into foreground

@@ -51,7 +51,7 @@ public:
 
 private:
     std::atomic<Node*> m_head{};
-    Common::SpinLock m_lock;
+    Common::TaggedSpinLock<Common::SpinLockClass::SlabHeap> m_lock;
 };
 
 class SlabHeapBase : protected SlabHeapImpl {
