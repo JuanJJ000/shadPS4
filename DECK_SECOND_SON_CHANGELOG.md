@@ -578,6 +578,30 @@ session.
   frame-pacing improvement, not a 30-FPS result or proof of whole-game playability; the measured
   scene remains roughly 9-10 FPS.
 
+### Independent early-submit activation correction
+
+- Issue 81 / PR 82 corrects an integration mistake found after PR 80: command counting and the
+  work budget had been initialized only by the optional phase-timing diagnostic. The launcher
+  could resolve budget 256 while the normal phase-timing-off profile silently left early submits
+  inactive. The corrected scheduler owns independent work counters; phase timing, GPU-envelope
+  timestamps, and budgeted submits can now each remain off or run independently.
+- The exact corrected feature binary (`b7bf3f5c`, 374,495,832 bytes, SHA-256
+  `b900559a0a5ae8ccd5a5beede45fccf2f9a2cd0ff3a05e8f63e122f26fa18631`) completed two matched
+  budget-0/budget-256 foreground pairs with phase timing and the GPU envelope both off. All four
+  runs reached the same correctly lit cannery tutorial scene, retained controller slot 0 and the
+  main 48 kHz stereo output, dumped the cache, and exited 0.
+- The two-run final-600 average improved from 8.569 to 10.012 median FPS (+16.842%) and from 8.876
+  to 10.426 mean FPS (+17.466%). Median frame time fell from 116.696 to 99.875 ms (-14.414%), mean
+  frame time fell 18.106%, and p95 frame time fell 35.563%. Both individual pairs agreed:
+  +16.677% and +17.007% median FPS.
+- The final-eight readback intervals also repeated the mechanism. Candidate averages recorded
+  549.810 ms of Finish time versus 2,249.331 ms for controls (-75.557%) and 499.580 ms of current
+  wait versus 2,174.646 ms (-77.027%). Every candidate early submit represented exactly 256
+  counted draws plus dispatches; controls recorded zero work tracking and zero early submits.
+- The correction supersedes PR 80's profile-selection claim, not its exact diagnostic-enabled
+  evidence. Budget 256 is selected only after this independent phase-off proof. The result remains
+  a stationary-scene improvement around 10 FPS, not whole-game or 30-FPS playability proof.
+
 ## Runtime results
 
 - The legally dumped CUSA00223 package installs and launches from Steam Gaming Mode into foreground
