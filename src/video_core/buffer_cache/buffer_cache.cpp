@@ -200,6 +200,9 @@ void BufferCache::ReadMemory(VAddr device_addr, u64 size, bool is_write,
                 std::max<VAddr>(window_start + request_window_size, intersection_end), buffer_end);
             const auto sample = DownloadBufferMemory(
                 buffer, window_start, window_end - window_start, precise_readback_stats_enabled);
+            if (precise_readback_stats_enabled) {
+                RecordPreciseReadbackBufferStats(buffer, is_write, sample);
+            }
             request_sample.bytes += sample.bytes;
             request_sample.call_count += sample.call_count;
             request_sample.copy_count += sample.copy_count;
@@ -380,13 +383,50 @@ void BufferCache::RecordPreciseReadbackStats(VAddr device_addr, u64 size, bool i
     }
 }
 
+void BufferCache::RecordPreciseReadbackBufferStats(const Buffer& buffer, bool is_write,
+                                                   const ReadbackDownloadSample& sample) {
+    const VAddr buffer_address = buffer.CpuAddr();
+    const u64 buffer_size = buffer.SizeBytes();
+    auto contribution = std::ranges::find_if(
+        precise_readback_buffer_contributions,
+        [buffer_address, buffer_size](const ReadbackBufferContribution& candidate) {
+            return candidate.valid && candidate.address == buffer_address &&
+                   candidate.size_bytes == buffer_size;
+        });
+    if (contribution == precise_readback_buffer_contributions.end()) {
+        contribution = std::ranges::find_if(
+            precise_readback_buffer_contributions,
+            [](const ReadbackBufferContribution& candidate) { return !candidate.valid; });
+        if (contribution == precise_readback_buffer_contributions.end()) {
+            precise_readback_buffer_table_drops++;
+            return;
+        }
+        *contribution = ReadbackBufferContribution{
+            .address = buffer_address,
+            .size_bytes = buffer_size,
+            .valid = true,
+        };
+    }
+    contribution->interval_requests++;
+    contribution->interval_writes += is_write;
+    contribution->download_calls += sample.call_count;
+    contribution->copy_count += sample.copy_count;
+    contribution->downloaded_bytes += sample.bytes;
+    contribution->finish_nanoseconds += sample.finish_nanoseconds;
+    contribution->submit_nanoseconds += sample.submit_nanoseconds;
+    contribution->wait_nanoseconds += sample.wait_nanoseconds;
+}
+
 void BufferCache::LogPreciseReadbackStats() {
     const u64 interval_finished_nanoseconds = SteadyClockNanoseconds();
     const u64 interval_wall_nanoseconds =
         interval_finished_nanoseconds - precise_readback_interval_started_nanoseconds;
     std::array<const ReadbackHotPage*, 3> hottest{};
     std::array<const ReadbackHotFaultSite*, 3> hottest_sites{};
+    std::array<const ReadbackBufferContribution*, 3> hottest_buffers{};
+    std::array<const ReadbackBufferContribution*, 3> slowest_buffers{};
     u64 tracked_pages = 0;
+    u64 tracked_buffers = 0;
     for (const auto& page : precise_readback_hot_pages) {
         if (!page.valid || page.interval_requests == 0) {
             continue;
@@ -418,6 +458,32 @@ void BufferCache::LogPreciseReadbackStats() {
             }
         }
     }
+    for (const auto& contribution : precise_readback_buffer_contributions) {
+        if (!contribution.valid || contribution.interval_requests == 0) {
+            continue;
+        }
+        tracked_buffers++;
+        for (size_t index = 0; index < hottest_buffers.size(); ++index) {
+            if (hottest_buffers[index] == nullptr ||
+                contribution.downloaded_bytes > hottest_buffers[index]->downloaded_bytes) {
+                for (size_t shift = hottest_buffers.size() - 1; shift > index; --shift) {
+                    hottest_buffers[shift] = hottest_buffers[shift - 1];
+                }
+                hottest_buffers[index] = &contribution;
+                break;
+            }
+        }
+        for (size_t index = 0; index < slowest_buffers.size(); ++index) {
+            if (slowest_buffers[index] == nullptr ||
+                contribution.finish_nanoseconds > slowest_buffers[index]->finish_nanoseconds) {
+                for (size_t shift = slowest_buffers.size() - 1; shift > index; --shift) {
+                    slowest_buffers[shift] = slowest_buffers[shift - 1];
+                }
+                slowest_buffers[index] = &contribution;
+                break;
+            }
+        }
+    }
     const ReadbackHotPage empty{};
     const auto& first = hottest[0] != nullptr ? *hottest[0] : empty;
     const auto& second = hottest[1] != nullptr ? *hottest[1] : empty;
@@ -426,6 +492,16 @@ void BufferCache::LogPreciseReadbackStats() {
     const auto& first_site = hottest_sites[0] != nullptr ? *hottest_sites[0] : empty_site;
     const auto& second_site = hottest_sites[1] != nullptr ? *hottest_sites[1] : empty_site;
     const auto& third_site = hottest_sites[2] != nullptr ? *hottest_sites[2] : empty_site;
+    const ReadbackBufferContribution empty_buffer{};
+    const auto& first_buffer = hottest_buffers[0] != nullptr ? *hottest_buffers[0] : empty_buffer;
+    const auto& second_buffer = hottest_buffers[1] != nullptr ? *hottest_buffers[1] : empty_buffer;
+    const auto& third_buffer = hottest_buffers[2] != nullptr ? *hottest_buffers[2] : empty_buffer;
+    const auto& first_slow_buffer =
+        slowest_buffers[0] != nullptr ? *slowest_buffers[0] : empty_buffer;
+    const auto& second_slow_buffer =
+        slowest_buffers[1] != nullptr ? *slowest_buffers[1] : empty_buffer;
+    const auto& third_slow_buffer =
+        slowest_buffers[2] != nullptr ? *slowest_buffers[2] : empty_buffer;
     const double finish_total_ms =
         static_cast<double>(precise_readback_finish_nanoseconds) / 1'000'000.0;
     const double finish_average_ms =
@@ -475,6 +551,13 @@ void BufferCache::LogPreciseReadbackStats() {
         "discard_probe_hits={} discard_probe_valid={} discard_write_span_bytes={} "
         "discard_page_write_bytes={} discard_dirty_bytes={} discard_covered_bytes={} "
         "discard_full_requests={} discard_zero_dirty_requests={} "
+        "tracked_buffers={} buffer_table_drops={} "
+        "hot_buffers=[{:#x}+{}:{}r/{}w/{}d/{}c/{}b/{:.3f}ms, "
+        "{:#x}+{}:{}r/{}w/{}d/{}c/{}b/{:.3f}ms, "
+        "{:#x}+{}:{}r/{}w/{}d/{}c/{}b/{:.3f}ms] "
+        "slow_buffers=[{:#x}+{}:{}r/{}w/{}d/{}c/{}b/{:.3f}ms, "
+        "{:#x}+{}:{}r/{}w/{}d/{}c/{}b/{:.3f}ms, "
+        "{:#x}+{}:{}r/{}w/{}d/{}c/{}b/{:.3f}ms] "
         "amplification={:.1f}x hot=[{:#x}:{}(w{}), {:#x}:{}(w{}), {:#x}:{}(w{})] "
         "hot_sites=[{:#x}@{:#x}:{}(w{}), {:#x}@{:#x}:{}(w{}), "
         "{:#x}@{:#x}:{}(w{})] "
@@ -497,18 +580,43 @@ void BufferCache::LogPreciseReadbackStats() {
         precise_readback_write_discard_coverage.gpu_dirty_bytes,
         precise_readback_write_discard_coverage.covered_dirty_bytes,
         precise_readback_write_discard_coverage.fully_covered_requests,
-        precise_readback_write_discard_coverage.zero_dirty_requests, amplification, first.address,
-        first.interval_requests, first.interval_writes, second.address, second.interval_requests,
-        second.interval_writes, third.address, third.interval_requests, third.interval_writes,
-        first_site.fault_pc, first_site.page_address, first_site.interval_requests,
-        first_site.interval_writes, second_site.fault_pc, second_site.page_address,
-        second_site.interval_requests, second_site.interval_writes, third_site.fault_pc,
-        third_site.page_address, third_site.interval_requests, third_site.interval_writes,
-        first_site.fault_pc, first_site.page_address, first_site.interval_requests,
-        first_site.interval_writes, first_site.last_context.rax, first_site.last_context.rcx,
-        first_site.last_context.rdx, first_site.last_context.rsi, first_site.last_context.rdi,
-        first_site.last_context.rbp, first_site.last_context.rsp, first_site.min_rcx,
-        first_site.max_rcx, first_site.min_rdx, first_site.max_rdx);
+        precise_readback_write_discard_coverage.zero_dirty_requests, tracked_buffers,
+        precise_readback_buffer_table_drops, first_buffer.address, first_buffer.size_bytes,
+        first_buffer.interval_requests, first_buffer.interval_writes, first_buffer.download_calls,
+        first_buffer.copy_count, first_buffer.downloaded_bytes,
+        static_cast<double>(first_buffer.finish_nanoseconds) / 1'000'000.0, second_buffer.address,
+        second_buffer.size_bytes, second_buffer.interval_requests, second_buffer.interval_writes,
+        second_buffer.download_calls, second_buffer.copy_count, second_buffer.downloaded_bytes,
+        static_cast<double>(second_buffer.finish_nanoseconds) / 1'000'000.0, third_buffer.address,
+        third_buffer.size_bytes, third_buffer.interval_requests, third_buffer.interval_writes,
+        third_buffer.download_calls, third_buffer.copy_count, third_buffer.downloaded_bytes,
+        static_cast<double>(third_buffer.finish_nanoseconds) / 1'000'000.0,
+        first_slow_buffer.address, first_slow_buffer.size_bytes,
+        first_slow_buffer.interval_requests, first_slow_buffer.interval_writes,
+        first_slow_buffer.download_calls, first_slow_buffer.copy_count,
+        first_slow_buffer.downloaded_bytes,
+        static_cast<double>(first_slow_buffer.finish_nanoseconds) / 1'000'000.0,
+        second_slow_buffer.address, second_slow_buffer.size_bytes,
+        second_slow_buffer.interval_requests, second_slow_buffer.interval_writes,
+        second_slow_buffer.download_calls, second_slow_buffer.copy_count,
+        second_slow_buffer.downloaded_bytes,
+        static_cast<double>(second_slow_buffer.finish_nanoseconds) / 1'000'000.0,
+        third_slow_buffer.address, third_slow_buffer.size_bytes,
+        third_slow_buffer.interval_requests, third_slow_buffer.interval_writes,
+        third_slow_buffer.download_calls, third_slow_buffer.copy_count,
+        third_slow_buffer.downloaded_bytes,
+        static_cast<double>(third_slow_buffer.finish_nanoseconds) / 1'000'000.0, amplification,
+        first.address, first.interval_requests, first.interval_writes, second.address,
+        second.interval_requests, second.interval_writes, third.address, third.interval_requests,
+        third.interval_writes, first_site.fault_pc, first_site.page_address,
+        first_site.interval_requests, first_site.interval_writes, second_site.fault_pc,
+        second_site.page_address, second_site.interval_requests, second_site.interval_writes,
+        third_site.fault_pc, third_site.page_address, third_site.interval_requests,
+        third_site.interval_writes, first_site.fault_pc, first_site.page_address,
+        first_site.interval_requests, first_site.interval_writes, first_site.last_context.rax,
+        first_site.last_context.rcx, first_site.last_context.rdx, first_site.last_context.rsi,
+        first_site.last_context.rdi, first_site.last_context.rbp, first_site.last_context.rsp,
+        first_site.min_rcx, first_site.max_rcx, first_site.min_rdx, first_site.max_rdx);
 
     precise_readback_requests = 0;
     precise_readback_queued_requests = 0;
@@ -526,6 +634,7 @@ void BufferCache::LogPreciseReadbackStats() {
     precise_readback_wait_nanoseconds = 0;
     precise_readback_max_finish_nanoseconds = 0;
     precise_readback_write_site_window_hits = 0;
+    precise_readback_buffer_table_drops = 0;
     precise_readback_write_discard_coverage = {};
     precise_readback_interval_started_nanoseconds = interval_finished_nanoseconds;
     for (auto& page : precise_readback_hot_pages) {
@@ -536,6 +645,7 @@ void BufferCache::LogPreciseReadbackStats() {
         site.interval_requests = 0;
         site.interval_writes = 0;
     }
+    precise_readback_buffer_contributions = {};
 }
 
 BufferCache::ReadbackDownloadSample BufferCache::DownloadBufferMemory(Buffer& buffer,

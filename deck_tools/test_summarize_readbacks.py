@@ -15,12 +15,25 @@ class SummarizeReadbacksTest(unittest.TestCase):
             "amplification=256.0x",
             "discard_probe_hits=2 discard_probe_valid=2 discard_write_span_bytes=8192 "
             "discard_page_write_bytes=4096 discard_dirty_bytes=2048 discard_covered_bytes=2048 "
-            "discard_full_requests=1 discard_zero_dirty_requests=0 amplification=256.0x",
+            "discard_full_requests=1 discard_zero_dirty_requests=0 tracked_buffers=2 "
+            "buffer_table_drops=0 "
+            "hot_buffers=[0x3000+65536:2r/1w/2d/6c/4096b/3.000ms, "
+            "0x4000+131072:1r/0w/1d/2c/2048b/1.000ms, "
+            "0x0+0:0r/0w/0d/0c/0b/0.000ms] "
+            "slow_buffers=[0x3000+65536:2r/1w/2d/6c/4096b/3.000ms, "
+            "0x4000+131072:1r/0w/1d/2c/2048b/1.000ms, "
+            "0x0+0:0r/0w/0d/0c/0b/0.000ms] amplification=256.0x",
         ).replace(
             "amplification=128.0x",
             "discard_probe_hits=1 discard_probe_valid=1 discard_write_span_bytes=4096 "
             "discard_page_write_bytes=2048 discard_dirty_bytes=1024 discard_covered_bytes=512 "
-            "discard_full_requests=0 discard_zero_dirty_requests=0 amplification=128.0x",
+            "discard_full_requests=0 discard_zero_dirty_requests=0 tracked_buffers=1 "
+            "buffer_table_drops=0 "
+            "hot_buffers=[0x3000+65536:2r/0w/1d/2c/2048b/1.000ms, "
+            "0x0+0:0r/0w/0d/0c/0b/0.000ms, 0x0+0:0r/0w/0d/0c/0b/0.000ms] "
+            "slow_buffers=[0x3000+65536:2r/0w/1d/2c/2048b/1.000ms, "
+            "0x0+0:0r/0w/0d/0c/0b/0.000ms, 0x0+0:0r/0w/0d/0c/0b/0.000ms] "
+            "amplification=128.0x",
         )
         intervals = summarize_readbacks.parse_intervals(text)
         result = summarize_readbacks.summarize(intervals, 0)
@@ -50,6 +63,13 @@ class SummarizeReadbacksTest(unittest.TestCase):
         self.assertEqual(result["discard_valid_pct"], 100.0)
         self.assertEqual(result["discard_dirty_coverage_pct"], 83.333)
         self.assertEqual(result["discard_full_request_pct"], 33.333)
+        self.assertEqual(result["tracked_buffers"], 3)
+        self.assertEqual(result["buffer_table_drops"], 0)
+        self.assertEqual(result["hottest_buffers"][0]["address"], "0x3000")
+        self.assertEqual(result["hottest_buffers"][0]["intervals"], 2)
+        self.assertEqual(result["hottest_buffers"][0]["downloaded_bytes"], 6144)
+        self.assertEqual(result["hottest_buffers"][0]["finish_ms"], 4.0)
+        self.assertEqual(result["slowest_buffers"][0]["address"], "0x3000")
 
     def test_legacy_line_defaults_to_512_kib(self):
         text = "Precise readback stats: requests=1 writes=1 reads=0 bounded_repeats=0 " \
@@ -62,6 +82,10 @@ class SummarizeReadbacksTest(unittest.TestCase):
         self.assertEqual(intervals[0]["site_window_hits"], 0)
         self.assertEqual(intervals[0]["discard_probe_hits"], 0)
         self.assertEqual(intervals[0]["discard_full_requests"], 0)
+        self.assertEqual(intervals[0]["tracked_buffers"], 0)
+        self.assertEqual(intervals[0]["buffer_table_drops"], 0)
+        self.assertEqual(intervals[0]["hot_buffers"], [])
+        self.assertEqual(intervals[0]["slow_buffers"], [])
 
 
 if __name__ == "__main__":

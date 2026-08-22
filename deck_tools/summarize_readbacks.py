@@ -15,6 +15,11 @@ HOT_PATTERN = re.compile(r"(0x[0-9a-f]+):([0-9]+)\(w([0-9]+)\)", re.IGNORECASE)
 HOT_SITE_PATTERN = re.compile(
     r"(0x[0-9a-f]+)@(0x[0-9a-f]+):([0-9]+)\(w([0-9]+)\)", re.IGNORECASE
 )
+BUFFER_CONTRIBUTION_PATTERN = re.compile(
+    r"(0x[0-9a-f]+)\+([0-9]+):([0-9]+)r/([0-9]+)w/([0-9]+)d/"
+    r"([0-9]+)c/([0-9]+)b/([0-9]+(?:\.[0-9]+)?)ms",
+    re.IGNORECASE,
+)
 TOP_CONTEXT_PATTERN = re.compile(
     r"(0x[0-9a-f]+)@(0x[0-9a-f]+):([0-9]+)\(w([0-9]+)\);"
     r"rax:(0x[0-9a-f]+);rcx:(0x[0-9a-f]+);rdx:(0x[0-9a-f]+);"
@@ -45,6 +50,8 @@ INTEGER_FIELDS = {
     "discard_covered_bytes",
     "discard_full_requests",
     "discard_zero_dirty_requests",
+    "tracked_buffers",
+    "buffer_table_drops",
 }
 REQUIRED_FIELDS = {
     "requests",
@@ -97,8 +104,37 @@ def parse_intervals(text: str) -> list[dict[str, object]]:
             "discard_covered_bytes",
             "discard_full_requests",
             "discard_zero_dirty_requests",
+            "tracked_buffers",
+            "buffer_table_drops",
         ):
             fields.setdefault(name, 0)
+        for field_name in ("hot_buffers", "slow_buffers"):
+            buffer_match = re.search(rf"\b{field_name}=\[([^]]*)\]", body)
+            fields[field_name] = [
+                {
+                    "address": address.lower(),
+                    "size_bytes": int(size_bytes),
+                    "requests": int(requests),
+                    "writes": int(writes),
+                    "download_calls": int(download_calls),
+                    "copies": int(copies),
+                    "downloaded_bytes": int(downloaded_bytes),
+                    "finish_ms": float(finish_ms),
+                }
+                for (
+                    address,
+                    size_bytes,
+                    requests,
+                    writes,
+                    download_calls,
+                    copies,
+                    downloaded_bytes,
+                    finish_ms,
+                ) in BUFFER_CONTRIBUTION_PATTERN.findall(
+                    buffer_match.group(1) if buffer_match else ""
+                )
+                if int(requests) != 0
+            ]
         hot_match = re.search(r"\bhot=\[([^]]*)\]", body)
         fields["hot"] = [
             {"address": address.lower(), "requests": int(requests), "writes": int(writes)}
@@ -189,6 +225,8 @@ def summarize(intervals: list[dict[str, object]], tail_count: int) -> dict[str, 
             "discard_covered_bytes",
             "discard_full_requests",
             "discard_zero_dirty_requests",
+            "tracked_buffers",
+            "buffer_table_drops",
         )
     }
     finish_total_ms = sum(float(interval["finish_total_ms"]) for interval in selected)
@@ -260,6 +298,49 @@ def summarize(intervals: list[dict[str, object]], tail_count: int) -> dict[str, 
         hot_contexts.values(),
         key=lambda context: (-context["requests"], context["pc"], context["address"]),
     )[:5]
+    aggregated_buffers: dict[tuple[str, int], dict[str, object]] = {}
+    for interval in selected:
+        for field_name in ("hot_buffers", "slow_buffers"):
+            for buffer in interval[field_name]:
+                key = (buffer["address"], buffer["size_bytes"])
+                contribution = aggregated_buffers.setdefault(
+                    key,
+                    {
+                        "address": buffer["address"],
+                        "size_bytes": buffer["size_bytes"],
+                        "requests": 0,
+                        "writes": 0,
+                        "download_calls": 0,
+                        "copies": 0,
+                        "downloaded_bytes": 0,
+                        "finish_ms": 0.0,
+                        "intervals": set(),
+                    },
+                )
+                interval_key = int(interval["line"])
+                if interval_key in contribution["intervals"]:
+                    continue
+                contribution["intervals"].add(interval_key)
+                for name in (
+                    "requests",
+                    "writes",
+                    "download_calls",
+                    "copies",
+                    "downloaded_bytes",
+                ):
+                    contribution[name] += buffer[name]
+                contribution["finish_ms"] += buffer["finish_ms"]
+    for contribution in aggregated_buffers.values():
+        contribution["intervals"] = len(contribution["intervals"])
+        contribution["finish_ms"] = round(contribution["finish_ms"], 3)
+    hottest_buffers = sorted(
+        aggregated_buffers.values(),
+        key=lambda buffer: (-buffer["downloaded_bytes"], buffer["address"], buffer["size_bytes"]),
+    )[:5]
+    slowest_buffers = sorted(
+        aggregated_buffers.values(),
+        key=lambda buffer: (-buffer["finish_ms"], buffer["address"], buffer["size_bytes"]),
+    )[:5]
     return {
         "intervals_available": len(intervals),
         "intervals_selected": len(selected),
@@ -300,6 +381,8 @@ def summarize(intervals: list[dict[str, object]], tail_count: int) -> dict[str, 
         "hottest_pages": hottest,
         "hottest_sites": hottest_sites,
         "hottest_contexts": hottest_contexts,
+        "hottest_buffers": hottest_buffers,
+        "slowest_buffers": slowest_buffers,
     }
 
 
@@ -330,6 +413,9 @@ def render_text(log_path: Path, result: dict[str, object]) -> str:
             result["discard_valid_pct"],
             result["discard_dirty_coverage_pct"],
             result["discard_full_request_pct"],
+        ),
+        "tracked_buffer_slots={} buffer_table_drops={}".format(
+            result["tracked_buffers"], result["buffer_table_drops"]
         ),
         f"requests={result['requests']} writes={result['writes']} reads={result['reads']}",
         f"requested_bytes={result['requested_bytes']} downloaded_bytes={result['downloaded_bytes']}",
@@ -377,6 +463,38 @@ def render_text(log_path: Path, result: dict[str, object]) -> str:
             for context in result["hottest_contexts"]
         )
         lines.append(f"hottest_contexts={contexts}")
+    if result["hottest_buffers"]:
+        buffers = ", ".join(
+            "{}+{}:{}i/{}r/{}w/{}d/{}c/{}b/{}ms".format(
+                buffer["address"],
+                buffer["size_bytes"],
+                buffer["intervals"],
+                buffer["requests"],
+                buffer["writes"],
+                buffer["download_calls"],
+                buffer["copies"],
+                buffer["downloaded_bytes"],
+                buffer["finish_ms"],
+            )
+            for buffer in result["hottest_buffers"]
+        )
+        lines.append(f"hottest_buffers={buffers}")
+    if result["slowest_buffers"]:
+        buffers = ", ".join(
+            "{}+{}:{}i/{}r/{}w/{}d/{}c/{}b/{}ms".format(
+                buffer["address"],
+                buffer["size_bytes"],
+                buffer["intervals"],
+                buffer["requests"],
+                buffer["writes"],
+                buffer["download_calls"],
+                buffer["copies"],
+                buffer["downloaded_bytes"],
+                buffer["finish_ms"],
+            )
+            for buffer in result["slowest_buffers"]
+        )
+        lines.append(f"slowest_buffers={buffers}")
     return "\n".join(lines)
 
 
