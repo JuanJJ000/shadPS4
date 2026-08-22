@@ -57,6 +57,10 @@ INTEGER_FIELDS = {
     "gpu_timestamp_bits",
     "gpu_timestamp_samples",
     "gpu_timestamp_failures",
+    "gpu_envelope",
+    "gpu_envelope_samples",
+    "gpu_envelope_failures",
+    "gpu_envelope_slot_exhaustions",
 }
 REQUIRED_FIELDS = {
     "requests",
@@ -109,6 +113,12 @@ def parse_intervals(text: str) -> list[dict[str, object]]:
         fields.setdefault("gpu_timestamp_samples", 0)
         fields.setdefault("gpu_timestamp_failures", 0)
         fields.setdefault("gpu_copy_total_ms", 0.0)
+        fields.setdefault("gpu_envelope", 0)
+        fields.setdefault("gpu_envelope_samples", 0)
+        fields.setdefault("gpu_envelope_failures", 0)
+        fields.setdefault("gpu_envelope_slot_exhaustions", 0)
+        fields.setdefault("gpu_before_readback_total_ms", 0.0)
+        fields.setdefault("gpu_envelope_total_ms", 0.0)
         for name in (
             "discard_probe_hits",
             "discard_probe_valid",
@@ -243,6 +253,9 @@ def summarize(intervals: list[dict[str, object]], tail_count: int) -> dict[str, 
             "buffer_table_drops",
             "gpu_timestamp_samples",
             "gpu_timestamp_failures",
+            "gpu_envelope_samples",
+            "gpu_envelope_failures",
+            "gpu_envelope_slot_exhaustions",
         )
     }
     finish_total_ms = sum(float(interval["finish_total_ms"]) for interval in selected)
@@ -250,6 +263,10 @@ def summarize(intervals: list[dict[str, object]], tail_count: int) -> dict[str, 
     prior_wait_total_ms = sum(float(interval["prior_wait_total_ms"]) for interval in selected)
     current_wait_total_ms = sum(float(interval["current_wait_total_ms"]) for interval in selected)
     gpu_copy_total_ms = sum(float(interval["gpu_copy_total_ms"]) for interval in selected)
+    gpu_before_readback_total_ms = sum(
+        float(interval["gpu_before_readback_total_ms"]) for interval in selected
+    )
+    gpu_envelope_total_ms = sum(float(interval["gpu_envelope_total_ms"]) for interval in selected)
     wall_total_ms = sum(float(interval.get("wall_ms", 0.0)) for interval in selected)
     requested_bytes = totals["requested_bytes"]
     requests = totals["requests"]
@@ -390,6 +407,14 @@ def summarize(intervals: list[dict[str, object]], tail_count: int) -> dict[str, 
         )
         if current_wait_total_ms
         else 0.0,
+        "gpu_envelope": any(bool(interval["gpu_envelope"]) for interval in selected),
+        "gpu_before_readback_total_ms": round(gpu_before_readback_total_ms, 3),
+        "gpu_envelope_total_ms": round(gpu_envelope_total_ms, 3),
+        "gpu_envelope_share_current_pct": round(
+            gpu_envelope_total_ms * 100.0 / current_wait_total_ms, 3
+        )
+        if current_wait_total_ms
+        else 0.0,
         "wall_total_ms": round(wall_total_ms, 3) if wall_total_ms else None,
         "request_rate": round(requests * 1000.0 / wall_total_ms, 3) if wall_total_ms else None,
         "finish_share_pct": round(finish_total_ms * 100.0 / wall_total_ms, 3)
@@ -481,6 +506,16 @@ def render_text(log_path: Path, result: dict[str, object]) -> str:
             result["gpu_timestamp_failures"],
             result["gpu_copy_total_ms"],
             result["gpu_copy_share_current_pct"],
+        ),
+        "gpu_envelope={} samples={} failures={} slot_exhaustions={} "
+        "before_readback_total_ms={} envelope_total_ms={} envelope_share_current_pct={}".format(
+            int(result["gpu_envelope"]),
+            result["gpu_envelope_samples"],
+            result["gpu_envelope_failures"],
+            result["gpu_envelope_slot_exhaustions"],
+            result["gpu_before_readback_total_ms"],
+            result["gpu_envelope_total_ms"],
+            result["gpu_envelope_share_current_pct"],
         ),
         f"bounded_repeats={result['bounded_repeats']} no_downloads={result['no_downloads']}",
     ]
