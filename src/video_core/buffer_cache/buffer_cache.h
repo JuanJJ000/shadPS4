@@ -169,6 +169,11 @@ private:
         u64 gpu_copy_nanoseconds{};
         u64 gpu_timestamp_samples{};
         u64 gpu_timestamp_failures{};
+        u64 gpu_before_readback_nanoseconds{};
+        u64 gpu_envelope_nanoseconds{};
+        u64 gpu_envelope_samples{};
+        u64 gpu_envelope_failures{};
+        u64 gpu_envelope_slot_exhaustions{};
         u64 prior_wait_nanoseconds{};
         u64 submit_nanoseconds{};
         u64 current_wait_nanoseconds{};
@@ -309,6 +314,7 @@ private:
 
     bool precise_readback_stats_enabled{};
     bool precise_readback_phase_timing_enabled{};
+    bool precise_readback_gpu_envelope_enabled{};
     vk::UniqueQueryPool precise_readback_gpu_timestamp_pool{};
     u32 precise_readback_gpu_timestamp_valid_bits{};
     double precise_readback_gpu_timestamp_period_ns{};
@@ -335,6 +341,11 @@ private:
     u64 precise_readback_gpu_copy_nanoseconds{};
     u64 precise_readback_gpu_timestamp_samples{};
     u64 precise_readback_gpu_timestamp_failures{};
+    u64 precise_readback_gpu_before_readback_nanoseconds{};
+    u64 precise_readback_gpu_envelope_nanoseconds{};
+    u64 precise_readback_gpu_envelope_samples{};
+    u64 precise_readback_gpu_envelope_failures{};
+    u64 precise_readback_gpu_envelope_slot_exhaustions{};
     u64 precise_readback_prior_wait_nanoseconds{};
     u64 precise_readback_submit_nanoseconds{};
     u64 precise_readback_current_wait_nanoseconds{};

@@ -348,10 +348,19 @@ struct DynamicState {
 class Scheduler {
 public:
     struct FinishTiming {
+        u64 gpu_tick{};
         u64 prior_wait_nanoseconds{};
         u64 submit_nanoseconds{};
         u64 current_wait_nanoseconds{};
         u64 wait_nanoseconds{};
+    };
+
+    struct CommandBufferTiming {
+        u64 before_readback_nanoseconds{};
+        u64 envelope_nanoseconds{};
+        u64 samples{};
+        u64 failures{};
+        u64 slot_exhaustions{};
     };
 
     explicit Scheduler(const Instance& instance);
@@ -371,6 +380,18 @@ public:
     /// Sends the current execution context to the GPU, waits for completion, and reports how the
     /// synchronous stall was divided between submission and the timeline wait.
     [[nodiscard]] FinishTiming FinishWithTiming(bool split_prior_work = false);
+
+    /// Enables bounded per-command-buffer timestamp slots for the precise-readback diagnostic.
+    /// The current command buffer is timestamped at its current position, and every subsequent
+    /// command buffer is timestamped immediately after begin.
+    [[nodiscard]] bool EnableCommandBufferTiming();
+
+    /// Marks the current command buffer immediately before and after a precise readback.
+    [[nodiscard]] bool MarkCommandBufferReadbackStart();
+    void MarkCommandBufferReadbackEnd();
+
+    /// Consumes the completed timestamp triplet associated with an exact scheduler timeline tick.
+    [[nodiscard]] CommandBufferTiming ConsumeCommandBufferTiming(u64 gpu_tick);
 
     /// Waits for the given tick to trigger on the GPU.
     void Wait(u64 tick);
@@ -440,6 +461,8 @@ public:
 private:
     void AllocateWorkerCommandBuffers();
 
+    void BeginCommandBufferTiming();
+
     void SubmitExecution(SubmitInfo& info);
 
     void PriorityPendingOpsThread(std::stop_token stoken);
@@ -464,6 +487,21 @@ private:
     RenderState render_state;
     bool is_rendering = false;
     tracy::VkCtxScope* profiler_scope{};
+
+    static constexpr u32 CommandBufferTimingSlotCount = 64;
+    static constexpr u32 CommandBufferTimingQueriesPerSlot = 3;
+    static constexpr u32 InvalidCommandBufferTimingSlot = ~u32{0};
+    struct CommandBufferTimingSlot {
+        u64 gpu_tick{};
+        bool in_use{};
+        bool readback_marked{};
+    };
+    vk::UniqueQueryPool command_buffer_timing_pool{};
+    std::array<CommandBufferTimingSlot, CommandBufferTimingSlotCount> command_buffer_timing_slots{};
+    u32 command_buffer_timing_current_slot{InvalidCommandBufferTimingSlot};
+    u32 command_buffer_timing_valid_bits{};
+    double command_buffer_timing_period_ns{};
+    u64 command_buffer_timing_slot_exhaustions{};
 };
 
 } // namespace Vulkan

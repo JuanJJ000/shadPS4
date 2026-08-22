@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <chrono>
+#include <limits>
 
 #include "common/assert.h"
 #include "common/debug.h"
@@ -137,11 +138,122 @@ Scheduler::FinishTiming Scheduler::FinishWithTiming(bool split_prior_work) {
         std::chrono::duration_cast<std::chrono::nanoseconds>(wait_finished - submit_finished)
             .count());
     return FinishTiming{
+        .gpu_tick = presubmit_tick,
         .prior_wait_nanoseconds = prior_wait_nanoseconds,
         .submit_nanoseconds = submit_nanoseconds,
         .current_wait_nanoseconds = current_wait_nanoseconds,
         .wait_nanoseconds = prior_wait_nanoseconds + current_wait_nanoseconds,
     };
+}
+
+bool Scheduler::EnableCommandBufferTiming() {
+    if (command_buffer_timing_pool) {
+        return true;
+    }
+    const auto queue_families = instance.GetPhysicalDevice().getQueueFamilyProperties();
+    const u32 queue_family = instance.GetGraphicsQueueFamilyIndex();
+    if (queue_family >= queue_families.size()) {
+        return false;
+    }
+    command_buffer_timing_valid_bits = queue_families[queue_family].timestampValidBits;
+    command_buffer_timing_period_ns =
+        instance.GetPhysicalDevice().getProperties().limits.timestampPeriod;
+    if (command_buffer_timing_valid_bits == 0 || command_buffer_timing_period_ns <= 0.0) {
+        return false;
+    }
+    const vk::QueryPoolCreateInfo query_pool_info = {
+        .queryType = vk::QueryType::eTimestamp,
+        .queryCount = CommandBufferTimingSlotCount * CommandBufferTimingQueriesPerSlot,
+    };
+    auto [result, pool] = instance.GetDevice().createQueryPoolUnique(query_pool_info);
+    if (result != vk::Result::eSuccess) {
+        return false;
+    }
+    command_buffer_timing_pool = std::move(pool);
+    BeginCommandBufferTiming();
+    return command_buffer_timing_current_slot != InvalidCommandBufferTimingSlot;
+}
+
+bool Scheduler::MarkCommandBufferReadbackStart() {
+    if (!command_buffer_timing_pool ||
+        command_buffer_timing_current_slot == InvalidCommandBufferTimingSlot) {
+        return false;
+    }
+    auto& slot = command_buffer_timing_slots[command_buffer_timing_current_slot];
+    if (slot.readback_marked) {
+        return false;
+    }
+    const u32 query = command_buffer_timing_current_slot * CommandBufferTimingQueriesPerSlot + 1;
+    current_cmdbuf.writeTimestamp2(vk::PipelineStageFlagBits2::eAllCommands,
+                                   *command_buffer_timing_pool, query);
+    slot.readback_marked = true;
+    return true;
+}
+
+void Scheduler::MarkCommandBufferReadbackEnd() {
+    if (!command_buffer_timing_pool ||
+        command_buffer_timing_current_slot == InvalidCommandBufferTimingSlot) {
+        return;
+    }
+    const auto& slot = command_buffer_timing_slots[command_buffer_timing_current_slot];
+    if (!slot.readback_marked) {
+        return;
+    }
+    const u32 query = command_buffer_timing_current_slot * CommandBufferTimingQueriesPerSlot + 2;
+    current_cmdbuf.writeTimestamp2(vk::PipelineStageFlagBits2::eAllCommands,
+                                   *command_buffer_timing_pool, query);
+}
+
+Scheduler::CommandBufferTiming Scheduler::ConsumeCommandBufferTiming(u64 gpu_tick) {
+    CommandBufferTiming timing{
+        .slot_exhaustions = command_buffer_timing_slot_exhaustions,
+    };
+    command_buffer_timing_slot_exhaustions = 0;
+    if (!command_buffer_timing_pool) {
+        timing.failures = 1;
+        return timing;
+    }
+    for (u32 index = 0; index < command_buffer_timing_slots.size(); ++index) {
+        auto& slot = command_buffer_timing_slots[index];
+        if (!slot.in_use || slot.gpu_tick != gpu_tick || !slot.readback_marked) {
+            continue;
+        }
+        const u32 first_query = index * CommandBufferTimingQueriesPerSlot;
+        std::array<u64, CommandBufferTimingQueriesPerSlot> timestamps{};
+        const auto result = instance.GetDevice().getQueryPoolResults(
+            *command_buffer_timing_pool, first_query, timestamps.size(), sizeof(timestamps),
+            timestamps.data(), sizeof(u64),
+            vk::QueryResultFlagBits::e64 | vk::QueryResultFlagBits::eWait);
+        slot = {};
+        if (result != vk::Result::eSuccess) {
+            timing.failures = 1;
+            return timing;
+        }
+        const auto delta_nanoseconds = [this](u64 end, u64 start) -> u64 {
+            u64 delta_ticks = end - start;
+            if (command_buffer_timing_valid_bits < 64) {
+                const u64 valid_mask = (u64{1} << command_buffer_timing_valid_bits) - 1;
+                delta_ticks &= valid_mask;
+            }
+            const long double nanoseconds =
+                static_cast<long double>(delta_ticks) *
+                static_cast<long double>(command_buffer_timing_period_ns);
+            return nanoseconds <= static_cast<long double>(std::numeric_limits<u64>::max())
+                       ? static_cast<u64>(nanoseconds)
+                       : 0;
+        };
+        timing.before_readback_nanoseconds = delta_nanoseconds(timestamps[1], timestamps[0]);
+        timing.envelope_nanoseconds = delta_nanoseconds(timestamps[2], timestamps[0]);
+        if (timing.envelope_nanoseconds == 0 ||
+            timing.envelope_nanoseconds < timing.before_readback_nanoseconds) {
+            timing.failures = 1;
+            return timing;
+        }
+        timing.samples = 1;
+        return timing;
+    }
+    timing.failures = 1;
+    return timing;
 }
 
 void Scheduler::Wait(u64 tick) {
@@ -169,6 +281,7 @@ void Scheduler::AllocateWorkerCommandBuffers() {
 
     current_cmdbuf = command_pool.Commit();
     Check(current_cmdbuf.begin(begin_info));
+    BeginCommandBufferTiming();
 
     // Invalidate dynamic state so it gets applied to the new command buffer.
     dynamic_state.Invalidate();
@@ -183,9 +296,35 @@ void Scheduler::AllocateWorkerCommandBuffers() {
 #endif
 }
 
+void Scheduler::BeginCommandBufferTiming() {
+    command_buffer_timing_current_slot = InvalidCommandBufferTimingSlot;
+    if (!command_buffer_timing_pool) {
+        return;
+    }
+    master_semaphore.Refresh();
+    for (u32 index = 0; index < command_buffer_timing_slots.size(); ++index) {
+        auto& slot = command_buffer_timing_slots[index];
+        if (slot.in_use && (slot.readback_marked || !master_semaphore.IsFree(slot.gpu_tick))) {
+            continue;
+        }
+        slot = CommandBufferTimingSlot{.in_use = true};
+        command_buffer_timing_current_slot = index;
+        const u32 first_query = index * CommandBufferTimingQueriesPerSlot;
+        current_cmdbuf.resetQueryPool(*command_buffer_timing_pool, first_query,
+                                      CommandBufferTimingQueriesPerSlot);
+        current_cmdbuf.writeTimestamp2(vk::PipelineStageFlagBits2::eAllCommands,
+                                       *command_buffer_timing_pool, first_query);
+        return;
+    }
+    ++command_buffer_timing_slot_exhaustions;
+}
+
 void Scheduler::SubmitExecution(SubmitInfo& info) {
     std::scoped_lock lk{submit_mutex};
     const u64 signal_value = master_semaphore.NextTick();
+    if (command_buffer_timing_current_slot != InvalidCommandBufferTimingSlot) {
+        command_buffer_timing_slots[command_buffer_timing_current_slot].gpu_tick = signal_value;
+    }
 
 #if TRACY_GPU_ENABLED
     auto* profiler_ctx = instance.GetProfilerContext();

@@ -110,6 +110,9 @@ session.
   attempt to replace the buffer cache's separate device-local shadow allocations.
 - Issue 67 tracks behavior-neutral attribution of precise-readback bytes and completion waits to
   cached-buffer identities before another memory-placement candidate is selected.
+- Issue 77 tracks bounded GPU timestamps around the entire command buffer that contains a precise
+  readback, so earlier recorded GPU work can be separated from the barrier-and-copy span measured
+  by issue 75.
 
 ## Local code changes
 
@@ -517,6 +520,23 @@ session.
 - Selector-off creates no query pool and records no timestamp commands. Unsupported queues fail
   closed with an explicit warning. This is a bounded attribution diagnostic, not an FPS change or
   proof that CPU handling outside the timestamp span is free.
+
+### Precise-readback command-buffer envelope diagnostic
+
+- Issue 77 extends only the existing opt-in phase-timing path with a fixed pool of 64 reusable
+  three-timestamp slots. Each measured command buffer records its start, the point immediately
+  before the readback barrier, and the point immediately after the copy.
+- Every slot is associated with the exact scheduler timeline tick submitted for that command
+  buffer. A readback-marked slot cannot be reset until its result is consumed after the existing
+  synchronous finish; completed command buffers without a readback may be reused. Exhaustion is
+  explicit and fails closed instead of overwriting an unconsumed measurement.
+- The diagnostic adds no queue submission and no new wait. It reports GPU time before the readback,
+  the full command-buffer envelope through the copy, successful/failed samples, slot exhaustion,
+  and the envelope as a percentage of the already measured current-command-buffer CPU wait.
+- Selector-off creates neither the command-buffer query pool nor timestamp commands. This is a
+  workload-attribution probe, not a performance change: foreground evidence must still prove
+  correct rendering, controller input, stereo audio, zero query failures/exhaustion, and a clean
+  exit before the result can be accepted.
 
 ## Runtime results
 
