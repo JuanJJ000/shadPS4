@@ -171,6 +171,11 @@ private:
         u64 gpu_timestamp_failures{};
         u64 gpu_before_readback_nanoseconds{};
         u64 gpu_envelope_nanoseconds{};
+        u64 guest_draws_before_readback{};
+        u64 guest_dispatches_before_readback{};
+        u64 early_submit_count{};
+        u64 early_submit_draws{};
+        u64 early_submit_dispatches{};
         u64 gpu_envelope_samples{};
         u64 gpu_envelope_failures{};
         u64 gpu_envelope_slot_exhaustions{};
@@ -343,6 +348,13 @@ private:
     u64 precise_readback_gpu_timestamp_failures{};
     u64 precise_readback_gpu_before_readback_nanoseconds{};
     u64 precise_readback_gpu_envelope_nanoseconds{};
+    u64 precise_readback_guest_draws_before_readback{};
+    u64 precise_readback_guest_dispatches_before_readback{};
+    u64 precise_readback_empty_guest_work_readbacks{};
+    u64 precise_readback_early_submit_count{};
+    u64 precise_readback_early_submit_draws{};
+    u64 precise_readback_early_submit_dispatches{};
+    u64 precise_readback_guest_work_submit_budget{};
     u64 precise_readback_gpu_envelope_samples{};
     u64 precise_readback_gpu_envelope_failures{};
     u64 precise_readback_gpu_envelope_slot_exhaustions{};

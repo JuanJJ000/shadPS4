@@ -358,6 +358,11 @@ public:
     struct CommandBufferTiming {
         u64 before_readback_nanoseconds{};
         u64 envelope_nanoseconds{};
+        u64 guest_draws_before_readback{};
+        u64 guest_dispatches_before_readback{};
+        u64 early_submit_count{};
+        u64 early_submit_draws{};
+        u64 early_submit_dispatches{};
         u64 samples{};
         u64 failures{};
         u64 slot_exhaustions{};
@@ -392,6 +397,15 @@ public:
 
     /// Consumes the completed timestamp triplet associated with an exact scheduler timeline tick.
     [[nodiscard]] CommandBufferTiming ConsumeCommandBufferTiming(u64 gpu_tick);
+
+    /// Sets an opt-in guest draw/dispatch budget for submission without waiting. Zero disables
+    /// early submission while retaining behavior-neutral command-buffer work counters.
+    void SetGuestWorkSubmitBudget(u32 budget);
+
+    /// Records one successfully emitted guest draw or dispatch command. When the opt-in budget is
+    /// reached, the current command buffer is submitted without waiting.
+    void RecordGuestDraw();
+    void RecordGuestDispatch();
 
     /// Waits for the given tick to trigger on the GPU.
     void Wait(u64 tick);
@@ -493,6 +507,8 @@ private:
     static constexpr u32 InvalidCommandBufferTimingSlot = ~u32{0};
     struct CommandBufferTimingSlot {
         u64 gpu_tick{};
+        u64 guest_draws{};
+        u64 guest_dispatches{};
         bool in_use{};
         bool readback_marked{};
     };
@@ -502,6 +518,13 @@ private:
     u32 command_buffer_timing_valid_bits{};
     double command_buffer_timing_period_ns{};
     u64 command_buffer_timing_slot_exhaustions{};
+    bool guest_work_tracking_enabled{};
+    u32 guest_work_submit_budget{};
+    u64 current_guest_draws{};
+    u64 current_guest_dispatches{};
+    u64 pending_early_submit_count{};
+    u64 pending_early_submit_draws{};
+    u64 pending_early_submit_dispatches{};
 };
 
 } // namespace Vulkan

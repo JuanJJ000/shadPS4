@@ -236,6 +236,7 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
     DebugState.IncDrawCall();
 
     ResetBindings();
+    scheduler.RecordGuestDraw();
 }
 
 void Rasterizer::DrawIndirect(bool is_indexed, VAddr arg_address, u32 offset, u32 stride,
@@ -317,6 +318,7 @@ void Rasterizer::DrawIndirect(bool is_indexed, VAddr arg_address, u32 offset, u3
     }
 
     ResetBindings();
+    scheduler.RecordGuestDraw();
 }
 
 void Rasterizer::DispatchDirect() {
@@ -348,6 +350,7 @@ void Rasterizer::DispatchDirect() {
     DebugState.IncDispatch();
 
     ResetBindings();
+    scheduler.RecordGuestDispatch();
 }
 
 void Rasterizer::DispatchIndirect(VAddr address, u32 offset, u32 size) {
@@ -381,6 +384,7 @@ void Rasterizer::DispatchIndirect(VAddr address, u32 offset, u32 size) {
     DebugState.IncDispatch();
 
     ResetBindings();
+    scheduler.RecordGuestDispatch();
 }
 
 u64 Rasterizer::Flush() {

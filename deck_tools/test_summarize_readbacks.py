@@ -20,6 +20,9 @@ class SummarizeReadbacksTest(unittest.TestCase):
             "gpu_envelope=1 gpu_envelope_samples=2 gpu_envelope_failures=0 "
             "gpu_envelope_slot_exhaustions=0 gpu_before_readback_total_ms=0.600 "
             "gpu_envelope_total_ms=0.800 gpu_envelope_share_current_pct=100.000 "
+            "guest_work_budget=64 guest_draws_before_readback=120 "
+            "guest_dispatches_before_readback=8 empty_guest_work_readbacks=0 "
+            "early_submit_count=2 early_submit_draws=120 early_submit_dispatches=8 "
             "discard_probe_hits=2 discard_probe_valid=2 discard_write_span_bytes=8192 "
             "discard_page_write_bytes=4096 discard_dirty_bytes=2048 discard_covered_bytes=2048 "
             "discard_full_requests=1 discard_zero_dirty_requests=0 tracked_buffers=2 "
@@ -39,6 +42,9 @@ class SummarizeReadbacksTest(unittest.TestCase):
             "gpu_envelope=1 gpu_envelope_samples=1 gpu_envelope_failures=0 "
             "gpu_envelope_slot_exhaustions=0 gpu_before_readback_total_ms=0.200 "
             "gpu_envelope_total_ms=0.300 gpu_envelope_share_current_pct=100.000 "
+            "guest_work_budget=64 guest_draws_before_readback=60 "
+            "guest_dispatches_before_readback=4 empty_guest_work_readbacks=1 "
+            "early_submit_count=1 early_submit_draws=60 early_submit_dispatches=4 "
             "discard_probe_hits=1 discard_probe_valid=1 discard_write_span_bytes=4096 "
             "discard_page_write_bytes=2048 discard_dirty_bytes=1024 discard_covered_bytes=512 "
             "discard_full_requests=0 discard_zero_dirty_requests=0 tracked_buffers=1 "
@@ -77,6 +83,14 @@ class SummarizeReadbacksTest(unittest.TestCase):
         self.assertEqual(result["gpu_before_readback_total_ms"], 0.8)
         self.assertEqual(result["gpu_envelope_total_ms"], 1.1)
         self.assertEqual(result["gpu_envelope_share_current_pct"], 100.0)
+        self.assertEqual(result["guest_work_budget"], 64)
+        self.assertEqual(result["guest_draws_before_readback"], 180)
+        self.assertEqual(result["guest_dispatches_before_readback"], 12)
+        self.assertEqual(result["empty_guest_work_readbacks"], 1)
+        self.assertEqual(result["early_submit_count"], 3)
+        self.assertEqual(result["early_submit_draws"], 180)
+        self.assertEqual(result["early_submit_dispatches"], 12)
+        self.assertEqual(result["guest_work_per_early_submit"], 64.0)
         self.assertEqual(result["hottest_pages"][0]["address"], "0x1000")
         self.assertEqual(result["hottest_pages"][0]["requests"], 4)
         self.assertEqual(result["hottest_sites"][0]["pc"], "0xaaa")
@@ -128,6 +142,11 @@ class SummarizeReadbacksTest(unittest.TestCase):
         self.assertEqual(intervals[0]["gpu_envelope_slot_exhaustions"], 0)
         self.assertEqual(intervals[0]["gpu_before_readback_total_ms"], 0.0)
         self.assertEqual(intervals[0]["gpu_envelope_total_ms"], 0.0)
+        self.assertEqual(intervals[0]["guest_work_budget"], 0)
+        self.assertEqual(intervals[0]["guest_draws_before_readback"], 0)
+        self.assertEqual(intervals[0]["guest_dispatches_before_readback"], 0)
+        self.assertEqual(intervals[0]["empty_guest_work_readbacks"], 0)
+        self.assertEqual(intervals[0]["early_submit_count"], 0)
         self.assertEqual(intervals[0]["discard_probe_hits"], 0)
         self.assertEqual(intervals[0]["discard_full_requests"], 0)
         self.assertEqual(intervals[0]["tracked_buffers"], 0)
