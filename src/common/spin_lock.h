@@ -25,6 +25,7 @@ struct SpinLockStats {
     std::uint64_t maximum_spin_iterations{};
     std::uint64_t try_attempts{};
     std::uint64_t try_failures{};
+    std::uint64_t yield_calls{};
 };
 
 using SpinLockStatsArray =
@@ -51,6 +52,7 @@ public:
     SpinLock& operator=(SpinLock&&) = delete;
 
     void lock();
+    void lock_with_yield_after(std::uint64_t spin_iterations);
     void unlock();
     [[nodiscard]] bool try_lock();
 

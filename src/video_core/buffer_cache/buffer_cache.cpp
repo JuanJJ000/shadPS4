@@ -818,20 +818,23 @@ void BufferCache::LogPreciseReadbackStats() {
         LOG_INFO(
             Render_Vulkan,
             "SpinLock class stats: enabled=1 "
-            "generic={}/{}/{}/{}/{}/{} page={}/{}/{}/{}/{}/{} "
-            "region={}/{}/{}/{}/{}/{} slab={}/{}/{}/{}/{}/{} "
-            "sleepq={}/{}/{}/{}/{}/{} "
-            "fields=acquisitions/contended/spins/max_spins/try_attempts/try_failures",
+            "generic={}/{}/{}/{}/{}/{}/{} page={}/{}/{}/{}/{}/{}/{} "
+            "region={}/{}/{}/{}/{}/{}/{} slab={}/{}/{}/{}/{}/{}/{} "
+            "sleepq={}/{}/{}/{}/{}/{}/{} "
+            "fields=acquisitions/contended/spins/max_spins/try_attempts/try_failures/yields",
             generic.acquisitions, generic.contended_acquisitions, generic.spin_iterations,
             generic.maximum_spin_iterations, generic.try_attempts, generic.try_failures,
+            generic.yield_calls,
             page.acquisitions, page.contended_acquisitions, page.spin_iterations,
-            page.maximum_spin_iterations, page.try_attempts, page.try_failures,
+            page.maximum_spin_iterations, page.try_attempts, page.try_failures, page.yield_calls,
             region.acquisitions, region.contended_acquisitions, region.spin_iterations,
             region.maximum_spin_iterations, region.try_attempts, region.try_failures,
+            region.yield_calls,
             slab.acquisitions, slab.contended_acquisitions, slab.spin_iterations,
-            slab.maximum_spin_iterations, slab.try_attempts, slab.try_failures,
+            slab.maximum_spin_iterations, slab.try_attempts, slab.try_failures, slab.yield_calls,
             sleepq.acquisitions, sleepq.contended_acquisitions, sleepq.spin_iterations,
-            sleepq.maximum_spin_iterations, sleepq.try_attempts, sleepq.try_failures);
+            sleepq.maximum_spin_iterations, sleepq.try_attempts, sleepq.try_failures,
+            sleepq.yield_calls);
     }
 
     precise_readback_requests = 0;

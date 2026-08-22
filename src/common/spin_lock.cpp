@@ -3,6 +3,8 @@
 
 #include "common/spin_lock.h"
 
+#include <thread>
+
 #if _MSC_VER
 #include <intrin.h>
 #if _M_AMD64
@@ -42,6 +44,7 @@ struct alignas(64) AtomicSpinLockStats {
     std::atomic<std::uint64_t> maximum_spin_iterations{};
     std::atomic<std::uint64_t> try_attempts{};
     std::atomic<std::uint64_t> try_failures{};
+    std::atomic<std::uint64_t> yield_calls{};
 };
 
 std::atomic<bool> spin_lock_stats_enabled{};
@@ -84,8 +87,43 @@ SpinLockStatsArray ConsumeSpinLockStats() {
             source.maximum_spin_iterations.exchange(0, std::memory_order_relaxed);
         target.try_attempts = source.try_attempts.exchange(0, std::memory_order_relaxed);
         target.try_failures = source.try_failures.exchange(0, std::memory_order_relaxed);
+        target.yield_calls = source.yield_calls.exchange(0, std::memory_order_relaxed);
     }
     return snapshot;
+}
+
+void SpinLock::lock_with_yield_after(std::uint64_t spin_iterations) {
+    if (spin_iterations == 0) {
+        lock();
+        return;
+    }
+
+    const bool collect_stats = SpinLockStatsEnabled();
+    std::uint64_t spins = 0;
+    std::uint64_t yields = 0;
+    std::uint64_t next_yield = spin_iterations;
+    while (lck.test_and_set(std::memory_order_acquire)) {
+        ++spins;
+        if (spins == next_yield) {
+            ++yields;
+            next_yield += spin_iterations;
+            std::this_thread::yield();
+        } else {
+            ThreadPause();
+        }
+    }
+    if (!collect_stats) {
+        return;
+    }
+
+    auto& stats = StatsFor(lock_class);
+    stats.acquisitions.fetch_add(1, std::memory_order_relaxed);
+    stats.spin_iterations.fetch_add(spins, std::memory_order_relaxed);
+    stats.yield_calls.fetch_add(yields, std::memory_order_relaxed);
+    if (spins != 0) {
+        stats.contended_acquisitions.fetch_add(1, std::memory_order_relaxed);
+        UpdateMaximum(stats.maximum_spin_iterations, spins);
+    }
 }
 
 void SpinLock::lock() {
