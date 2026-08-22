@@ -227,7 +227,9 @@ void BufferCache::ReadMemory(VAddr device_addr, u64 size, bool is_write,
             request_sample.call_count += sample.call_count;
             request_sample.copy_count += sample.copy_count;
             request_sample.finish_nanoseconds += sample.finish_nanoseconds;
+            request_sample.prior_wait_nanoseconds += sample.prior_wait_nanoseconds;
             request_sample.submit_nanoseconds += sample.submit_nanoseconds;
+            request_sample.current_wait_nanoseconds += sample.current_wait_nanoseconds;
             request_sample.wait_nanoseconds += sample.wait_nanoseconds;
         });
         if (is_write) {
