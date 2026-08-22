@@ -108,6 +108,8 @@ session.
   array write while preserving all fork-only Steam Deck work.
 - Issue 61 tracks a standalone synthetic probe of direct Vulkan host-memory import before any
   attempt to replace the buffer cache's separate device-local shadow allocations.
+- Issue 67 tracks behavior-neutral attribution of precise-readback bytes and completion waits to
+  cached-buffer identities before another memory-placement candidate is selected.
 
 ## Local code changes
 
@@ -441,6 +443,32 @@ session.
   result clears a narrow, opt-in runtime-prototype gate, but it is not a gameplay, FPS, or full
   BufferCache result. Foreground correctness and performance A/B remain mandatory before any
   runtime path can be accepted.
+
+### Per-buffer precise-readback contributions
+
+- Issue 67 adds a fixed 64-entry table under the existing opt-in readback statistics. It attributes
+  request participation, writes, download calls, copy ranges, downloaded bytes, and the observed
+  completion timing to each cached buffer's guest base and allocation size. Stats-off memory
+  placement, barriers, tracking, readback windows, and synchronization are unchanged.
+- Each 128-request interval emits the top three buffers by downloaded bytes and by observed finish
+  time. The table reports explicit overflow drops instead of silently pretending a partial census
+  is complete. The local summarizer parses both lists, deduplicates a buffer listed in both, and
+  remains compatible with all older logs.
+- The exact `66526899` diagnostic binary ran for 92 seconds in foreground Steam/Gamescope and
+  reached correctly lit cannery gameplay with Delsin and the objective rendered. Controller input,
+  48 kHz stereo output, and exit status 0 were preserved. The 920-sample run measured 8.58 median
+  FPS and 116.56 ms median frame time; this measurement-only run is not an FPS comparison.
+- The final eight intervals tracked six or seven unique buffers apiece with zero table drops. Two
+  18,956,288-byte allocations accounted for 119,792,704 of 125,087,744 downloaded bytes (95.767%)
+  and 1,889.706 of 4,651.313 observed finish milliseconds (40.627%). This is the first measured
+  high-byte candidate set; the prior hot fault-page count did not expose it.
+- A separate 268,451,840-byte allocation was associated with 2,013.495 finish milliseconds
+  (43.289%) while downloading only 106,560 bytes (0.085%). This timing is an association, not a
+  causal per-buffer cost: sequential `scheduler.Finish()` calls can charge earlier queued GPU work
+  to whichever buffer finishes first in a request.
+- The diagnostic passes its behavior-neutral gate. Any follow-up must use the byte census to select
+  one bounded allocation at a time and must not treat the observed finish ranking as proof that
+  moving that allocation alone removes the wait.
 
 ## Runtime results
 

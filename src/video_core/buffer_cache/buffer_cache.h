@@ -203,6 +203,9 @@ private:
                                     const ReadbackDownloadSample& sample,
                                     const WriteDiscardCoverageSample& coverage);
 
+    void RecordPreciseReadbackBufferStats(const Buffer& buffer, bool is_write,
+                                          const ReadbackDownloadSample& sample);
+
     [[nodiscard]] WriteDiscardCoverageSample MeasureWriteDiscardCoverage(
         VAddr device_addr, bool is_write, const Common::FaultContext& fault_context) const;
 
@@ -260,6 +263,7 @@ private:
 
     static constexpr u64 ReadbackStatsPageSize = 4_KB;
     static constexpr size_t ReadbackStatsHotPageCount = 32;
+    static constexpr size_t ReadbackStatsBufferCount = 64;
 
     struct ReadbackHotPage {
         VAddr address{};
@@ -281,6 +285,20 @@ private:
         u64 last_request{};
         u64 interval_requests{};
         u64 interval_writes{};
+        bool valid{};
+    };
+
+    struct ReadbackBufferContribution {
+        VAddr address{};
+        u64 size_bytes{};
+        u64 interval_requests{};
+        u64 interval_writes{};
+        u64 download_calls{};
+        u64 copy_count{};
+        u64 downloaded_bytes{};
+        u64 finish_nanoseconds{};
+        u64 submit_nanoseconds{};
+        u64 wait_nanoseconds{};
         bool valid{};
     };
 
@@ -309,9 +327,12 @@ private:
     u64 precise_readback_wait_nanoseconds{};
     u64 precise_readback_max_finish_nanoseconds{};
     u64 precise_readback_write_site_window_hits{};
+    u64 precise_readback_buffer_table_drops{};
     WriteDiscardCoverageSample precise_readback_write_discard_coverage{};
     std::array<ReadbackHotPage, ReadbackStatsHotPageCount> precise_readback_hot_pages{};
     std::array<ReadbackHotFaultSite, ReadbackStatsHotPageCount> precise_readback_hot_fault_sites{};
+    std::array<ReadbackBufferContribution, ReadbackStatsBufferCount>
+        precise_readback_buffer_contributions{};
 };
 
 } // namespace VideoCore
