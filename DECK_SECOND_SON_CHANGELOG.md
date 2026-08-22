@@ -470,6 +470,23 @@ session.
   one bounded allocation at a time and must not treat the observed finish ranking as proof that
   moving that allocation alone removes the wait.
 
+### Precise-readback wait-phase diagnostic
+
+- Issue 73 adds a disabled-by-default diagnostic that separates older queued GPU work from the
+  command buffer containing the current precise-readback copy. The accepted path remains one
+  submission and one timeline wait unless the explicit phase selector is enabled together with
+  readback statistics.
+- In split mode, the scheduler first waits for the last previously submitted tick, then submits and
+  waits for the current readback command buffer. Counters report prior-backlog wait, submission,
+  and current-command-buffer wait separately. This intentionally changes scheduling and is
+  diagnostic evidence only, never an FPS comparison.
+- The Deck launcher accepts exactly `0` or `1` from an environment override or profile file,
+  records the resolved value and source in every run, and fails closed to `0`. The emulator also
+  refuses to enable phase timing when readback statistics are disabled.
+- The foreground gate requires correct lighting, geometry, controller, 48 kHz stereo audio, and a
+  clean exit before the timing split can guide the next optimization. The selector must be restored
+  to `0` after the evidence run.
+
 ## Runtime results
 
 - The legally dumped CUSA00223 package installs and launches from Steam Gaming Mode into foreground

@@ -59,6 +59,21 @@ BufferCache::BufferCache(const Vulkan::Instance& instance_, Vulkan::Scheduler& s
     const char* readback_stats = std::getenv("SHADPS4_PRECISE_READBACK_STATS");
     precise_readback_stats_enabled =
         readback_stats != nullptr && readback_stats[0] != '\0' && readback_stats[0] != '0';
+    if (const char* phase_timing = std::getenv("SHADPS4_PRECISE_READBACK_PHASE_TIMING")) {
+        const std::string_view value{phase_timing};
+        if (value == "1") {
+            precise_readback_phase_timing_enabled = precise_readback_stats_enabled;
+            if (!precise_readback_stats_enabled) {
+                LOG_WARNING(Render_Vulkan,
+                            "Ignoring precise readback phase timing because readback statistics "
+                            "are disabled");
+            }
+        } else if (value != "0" && !value.empty()) {
+            LOG_WARNING(Render_Vulkan,
+                        "Ignoring invalid precise readback phase timing '{}'; expected 0 or 1",
+                        value);
+        }
+    }
     if (const char* interval = std::getenv("SHADPS4_PRECISE_READBACK_STATS_INTERVAL")) {
         char* end = nullptr;
         const auto parsed = std::strtoull(interval, &end, 10);
@@ -123,6 +138,11 @@ BufferCache::BufferCache(const Vulkan::Instance& instance_, Vulkan::Scheduler& s
     } else if (readback_window_overridden) {
         LOG_INFO(Render_Vulkan, "Precise readback window set to {} KiB",
                  precise_readback_window_size / 1_KB);
+    }
+    if (precise_readback_phase_timing_enabled) {
+        LOG_INFO(Render_Vulkan,
+                 "Precise readback phase timing enabled; prior GPU work is completed before the "
+                 "current readback submission");
     }
     if (precise_readback_write_site_pc != 0) {
         LOG_INFO(Render_Vulkan, "Precise write-site window enabled for guest PC {:#x}: {} KiB",
@@ -287,7 +307,9 @@ void BufferCache::RecordPreciseReadbackStats(VAddr device_addr, u64 size, bool i
     precise_readback_downloaded_bytes += sample.bytes;
     precise_readback_no_downloads += sample.bytes == 0;
     precise_readback_finish_nanoseconds += sample.finish_nanoseconds;
+    precise_readback_prior_wait_nanoseconds += sample.prior_wait_nanoseconds;
     precise_readback_submit_nanoseconds += sample.submit_nanoseconds;
+    precise_readback_current_wait_nanoseconds += sample.current_wait_nanoseconds;
     precise_readback_wait_nanoseconds += sample.wait_nanoseconds;
     precise_readback_max_finish_nanoseconds =
         std::max(precise_readback_max_finish_nanoseconds, sample.finish_nanoseconds);
@@ -510,6 +532,10 @@ void BufferCache::LogPreciseReadbackStats() {
         static_cast<double>(precise_readback_max_finish_nanoseconds) / 1'000'000.0;
     const double submit_total_ms =
         static_cast<double>(precise_readback_submit_nanoseconds) / 1'000'000.0;
+    const double prior_wait_total_ms =
+        static_cast<double>(precise_readback_prior_wait_nanoseconds) / 1'000'000.0;
+    const double current_wait_total_ms =
+        static_cast<double>(precise_readback_current_wait_nanoseconds) / 1'000'000.0;
     const double wait_total_ms =
         static_cast<double>(precise_readback_wait_nanoseconds) / 1'000'000.0;
     const double submit_share = precise_readback_finish_nanoseconds != 0
@@ -521,6 +547,20 @@ void BufferCache::LogPreciseReadbackStats() {
                                   ? static_cast<double>(precise_readback_wait_nanoseconds) * 100.0 /
                                         static_cast<double>(precise_readback_finish_nanoseconds)
                                   : 0.0;
+    const double prior_wait_share = precise_readback_finish_nanoseconds != 0
+                                        ? static_cast<double>(
+                                              precise_readback_prior_wait_nanoseconds) *
+                                              100.0 /
+                                              static_cast<double>(
+                                                  precise_readback_finish_nanoseconds)
+                                        : 0.0;
+    const double current_wait_share = precise_readback_finish_nanoseconds != 0
+                                          ? static_cast<double>(
+                                                precise_readback_current_wait_nanoseconds) *
+                                                100.0 /
+                                                static_cast<double>(
+                                                    precise_readback_finish_nanoseconds)
+                                          : 0.0;
     const double average_outstanding_depth =
         static_cast<double>(precise_readback_outstanding_depth_sum) /
         static_cast<double>(precise_readback_requests);
@@ -545,7 +585,9 @@ void BufferCache::LogPreciseReadbackStats() {
         "tracked_pages={} requested_bytes={} download_calls={} copies={} downloaded_bytes={} "
         "no_downloads={} finish_total_ms={:.3f} finish_avg_ms={:.3f} finish_max_ms={:.3f} "
         "submit_total_ms={:.3f} wait_total_ms={:.3f} submit_share_pct={:.1f} "
-        "wait_share_pct={:.1f} queued_requests={} avg_outstanding_depth={:.2f} "
+        "wait_share_pct={:.1f} phase_split={} prior_wait_total_ms={:.3f} "
+        "current_wait_total_ms={:.3f} prior_wait_share_pct={:.1f} "
+        "current_wait_share_pct={:.1f} queued_requests={} avg_outstanding_depth={:.2f} "
         "max_outstanding_depth={} wall_ms={:.3f} request_rate={:.1f} "
         "finish_share_pct={:.1f} site_window_kib={} site_window_hits={} "
         "discard_probe_hits={} discard_probe_valid={} discard_write_span_bytes={} "
@@ -569,7 +611,10 @@ void BufferCache::LogPreciseReadbackStats() {
         tracked_pages, precise_readback_requested_bytes, precise_readback_download_calls,
         precise_readback_copy_count, precise_readback_downloaded_bytes,
         precise_readback_no_downloads, finish_total_ms, finish_average_ms, finish_max_ms,
-        submit_total_ms, wait_total_ms, submit_share, wait_share, precise_readback_queued_requests,
+        submit_total_ms, wait_total_ms, submit_share, wait_share,
+        static_cast<u64>(precise_readback_phase_timing_enabled), prior_wait_total_ms,
+        current_wait_total_ms, prior_wait_share, current_wait_share,
+        precise_readback_queued_requests,
         average_outstanding_depth, precise_readback_max_outstanding_depth, wall_ms,
         requests_per_second, finish_share, precise_readback_write_site_window_size / 1_KB,
         precise_readback_write_site_window_hits,
@@ -630,7 +675,9 @@ void BufferCache::LogPreciseReadbackStats() {
     precise_readback_downloaded_bytes = 0;
     precise_readback_no_downloads = 0;
     precise_readback_finish_nanoseconds = 0;
+    precise_readback_prior_wait_nanoseconds = 0;
     precise_readback_submit_nanoseconds = 0;
+    precise_readback_current_wait_nanoseconds = 0;
     precise_readback_wait_nanoseconds = 0;
     precise_readback_max_finish_nanoseconds = 0;
     precise_readback_write_site_window_hits = 0;
@@ -724,8 +771,10 @@ BufferCache::ReadbackDownloadSample BufferCache::DownloadBufferMemory(Buffer& bu
     const auto finish_start =
         measure_finish ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
     if (measure_finish) {
-        const auto timing = scheduler.FinishWithTiming();
+        const auto timing = scheduler.FinishWithTiming(precise_readback_phase_timing_enabled);
+        sample.prior_wait_nanoseconds = timing.prior_wait_nanoseconds;
         sample.submit_nanoseconds = timing.submit_nanoseconds;
+        sample.current_wait_nanoseconds = timing.current_wait_nanoseconds;
         sample.wait_nanoseconds = timing.wait_nanoseconds;
     } else {
         scheduler.Finish();
