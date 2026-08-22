@@ -27,6 +27,26 @@ case "${readback_stats}" in
     ;;
 esac
 readback_stats_interval="${SECOND_SON_READBACK_STATS_INTERVAL:-128}"
+readback_phase_timing_file="${SECOND_SON_READBACK_PHASE_TIMING_FILE:-${data_root}/readback-phase-timing.txt}"
+readback_phase_timing_source="default"
+if [[ -n "${SECOND_SON_READBACK_PHASE_TIMING:-}" ]]; then
+  readback_phase_timing="${SECOND_SON_READBACK_PHASE_TIMING}"
+  readback_phase_timing_source="environment"
+elif [[ -r "${readback_phase_timing_file}" ]]; then
+  IFS= read -r readback_phase_timing <"${readback_phase_timing_file}" || true
+  readback_phase_timing="${readback_phase_timing:-0}"
+  readback_phase_timing_source="${readback_phase_timing_file}"
+else
+  readback_phase_timing="0"
+fi
+case "${readback_phase_timing}" in
+  0|1) ;;
+  *)
+    echo "Ignoring invalid precise-readback phase timing value '${readback_phase_timing}'; expected 0 or 1" >&2
+    readback_phase_timing="0"
+    readback_phase_timing_source="invalid-fallback"
+    ;;
+esac
 sleepq_stats_file="${SECOND_SON_SLEEPQ_STATS_FILE:-${data_root}/sleepq-stats.txt}"
 sleepq_stats_source="default"
 if [[ -n "${SECOND_SON_SLEEPQ_STATS:-}" ]]; then
@@ -263,6 +283,8 @@ EOF
   echo "precise_readback_stats=${readback_stats}"
   echo "precise_readback_stats_source=${readback_stats_source}"
   echo "precise_readback_stats_interval=${readback_stats_interval}"
+  echo "precise_readback_phase_timing=${readback_phase_timing}"
+  echo "precise_readback_phase_timing_source=${readback_phase_timing_source}"
   echo "precise_readback_window_kb=${readback_window_kb}"
   echo "precise_readback_window_source=${readback_window_source}"
   echo "precise_readback_write_site_window=${readback_write_site_window}"
@@ -532,6 +554,7 @@ XDG_DATA_HOME="${xdg_data}" MANGOHUD_CONFIGFILE="${mangohud_config}" \
   SHADPS4_READONLY_FORMATTED_BUFFER_LIMIT_MB="${SHADPS4_READONLY_FORMATTED_BUFFER_LIMIT_MB:-256}" \
   SHADPS4_PRECISE_READBACK_STATS="${SHADPS4_PRECISE_READBACK_STATS:-${readback_stats}}" \
   SHADPS4_PRECISE_READBACK_STATS_INTERVAL="${SHADPS4_PRECISE_READBACK_STATS_INTERVAL:-${readback_stats_interval}}" \
+  SHADPS4_PRECISE_READBACK_PHASE_TIMING="${SHADPS4_PRECISE_READBACK_PHASE_TIMING:-${readback_phase_timing}}" \
   SHADPS4_PRECISE_READBACK_WINDOW_KB="${SHADPS4_PRECISE_READBACK_WINDOW_KB:-${readback_window_kb}}" \
   SHADPS4_PRECISE_READBACK_WRITE_SITE_WINDOW="${SHADPS4_PRECISE_READBACK_WRITE_SITE_WINDOW:-${readback_write_site_window}}" \
   SHADPS4_PRECISE_READBACK_WRITE_DISCARD_PROBE_PC="${SHADPS4_PRECISE_READBACK_WRITE_DISCARD_PROBE_PC:-${readback_write_discard_probe}}" \

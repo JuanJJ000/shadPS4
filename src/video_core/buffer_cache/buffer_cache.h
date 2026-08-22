@@ -166,7 +166,9 @@ private:
         u64 call_count{};
         u64 copy_count{};
         u64 finish_nanoseconds{};
+        u64 prior_wait_nanoseconds{};
         u64 submit_nanoseconds{};
+        u64 current_wait_nanoseconds{};
         u64 wait_nanoseconds{};
     };
 
@@ -303,6 +305,7 @@ private:
     };
 
     bool precise_readback_stats_enabled{};
+    bool precise_readback_phase_timing_enabled{};
     u64 precise_readback_stats_interval{128};
     u64 precise_readback_window_size{512_KB};
     VAddr precise_readback_write_site_pc{};
@@ -323,7 +326,9 @@ private:
     u64 precise_readback_downloaded_bytes{};
     u64 precise_readback_no_downloads{};
     u64 precise_readback_finish_nanoseconds{};
+    u64 precise_readback_prior_wait_nanoseconds{};
     u64 precise_readback_submit_nanoseconds{};
+    u64 precise_readback_current_wait_nanoseconds{};
     u64 precise_readback_wait_nanoseconds{};
     u64 precise_readback_max_finish_nanoseconds{};
     u64 precise_readback_write_site_window_hits{};

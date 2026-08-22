@@ -111,22 +111,36 @@ void Scheduler::Finish() {
     Wait(presubmit_tick);
 }
 
-Scheduler::FinishTiming Scheduler::FinishWithTiming() {
-    const auto submit_started = std::chrono::steady_clock::now();
+Scheduler::FinishTiming Scheduler::FinishWithTiming(bool split_prior_work) {
     const u64 presubmit_tick = CurrentTick();
+    u64 prior_wait_nanoseconds{};
+    if (split_prior_work && presubmit_tick > 0) {
+        const auto prior_wait_started = std::chrono::steady_clock::now();
+        Wait(presubmit_tick - 1);
+        const auto prior_wait_finished = std::chrono::steady_clock::now();
+        prior_wait_nanoseconds = static_cast<u64>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(prior_wait_finished -
+                                                                 prior_wait_started)
+                .count());
+    }
+    const auto submit_started = std::chrono::steady_clock::now();
     SubmitInfo info{};
     SubmitExecution(info);
     const auto submit_finished = std::chrono::steady_clock::now();
     Wait(presubmit_tick);
     const auto wait_finished = std::chrono::steady_clock::now();
 
+    const auto submit_nanoseconds = static_cast<u64>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(submit_finished - submit_started)
+            .count());
+    const auto current_wait_nanoseconds = static_cast<u64>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(wait_finished - submit_finished)
+            .count());
     return FinishTiming{
-        .submit_nanoseconds = static_cast<u64>(
-            std::chrono::duration_cast<std::chrono::nanoseconds>(submit_finished - submit_started)
-                .count()),
-        .wait_nanoseconds = static_cast<u64>(
-            std::chrono::duration_cast<std::chrono::nanoseconds>(wait_finished - submit_finished)
-                .count()),
+        .prior_wait_nanoseconds = prior_wait_nanoseconds,
+        .submit_nanoseconds = submit_nanoseconds,
+        .current_wait_nanoseconds = current_wait_nanoseconds,
+        .wait_nanoseconds = prior_wait_nanoseconds + current_wait_nanoseconds,
     };
 }
 

@@ -52,6 +52,7 @@ INTEGER_FIELDS = {
     "discard_zero_dirty_requests",
     "tracked_buffers",
     "buffer_table_drops",
+    "phase_split",
 }
 REQUIRED_FIELDS = {
     "requests",
@@ -95,6 +96,9 @@ def parse_intervals(text: str) -> list[dict[str, object]]:
         fields.setdefault("window_kib", 512)
         fields.setdefault("site_window_kib", 0)
         fields.setdefault("site_window_hits", 0)
+        fields.setdefault("phase_split", 0)
+        fields.setdefault("prior_wait_total_ms", 0.0)
+        fields.setdefault("current_wait_total_ms", fields.get("wait_total_ms", 0.0))
         for name in (
             "discard_probe_hits",
             "discard_probe_valid",
@@ -231,6 +235,8 @@ def summarize(intervals: list[dict[str, object]], tail_count: int) -> dict[str, 
     }
     finish_total_ms = sum(float(interval["finish_total_ms"]) for interval in selected)
     finish_max_ms = max(float(interval["finish_max_ms"]) for interval in selected)
+    prior_wait_total_ms = sum(float(interval["prior_wait_total_ms"]) for interval in selected)
+    current_wait_total_ms = sum(float(interval["current_wait_total_ms"]) for interval in selected)
     wall_total_ms = sum(float(interval.get("wall_ms", 0.0)) for interval in selected)
     requested_bytes = totals["requested_bytes"]
     requests = totals["requests"]
@@ -351,6 +357,15 @@ def summarize(intervals: list[dict[str, object]], tail_count: int) -> dict[str, 
         "finish_total_ms": round(finish_total_ms, 3),
         "finish_avg_ms_per_request": round(finish_total_ms / requests, 6) if requests else 0.0,
         "finish_max_ms": round(finish_max_ms, 3),
+        "phase_split": any(bool(interval["phase_split"]) for interval in selected),
+        "prior_wait_total_ms": round(prior_wait_total_ms, 3),
+        "current_wait_total_ms": round(current_wait_total_ms, 3),
+        "prior_wait_share_pct": round(prior_wait_total_ms * 100.0 / finish_total_ms, 3)
+        if finish_total_ms
+        else 0.0,
+        "current_wait_share_pct": round(current_wait_total_ms * 100.0 / finish_total_ms, 3)
+        if finish_total_ms
+        else 0.0,
         "wall_total_ms": round(wall_total_ms, 3) if wall_total_ms else None,
         "request_rate": round(requests * 1000.0 / wall_total_ms, 3) if wall_total_ms else None,
         "finish_share_pct": round(finish_total_ms * 100.0 / wall_total_ms, 3)
@@ -424,6 +439,14 @@ def render_text(log_path: Path, result: dict[str, object]) -> str:
             result["finish_total_ms"],
             result["finish_avg_ms_per_request"],
             result["finish_max_ms"],
+        ),
+        "phase_split={} prior_wait_total_ms={} current_wait_total_ms={} "
+        "prior_wait_share_pct={} current_wait_share_pct={}".format(
+            int(result["phase_split"]),
+            result["prior_wait_total_ms"],
+            result["current_wait_total_ms"],
+            result["prior_wait_share_pct"],
+            result["current_wait_share_pct"],
         ),
         f"bounded_repeats={result['bounded_repeats']} no_downloads={result['no_downloads']}",
     ]

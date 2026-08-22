@@ -470,6 +470,39 @@ session.
   one bounded allocation at a time and must not treat the observed finish ranking as proof that
   moving that allocation alone removes the wait.
 
+### Precise-readback wait-phase diagnostic
+
+- Issue 73 adds a disabled-by-default diagnostic that separates older queued GPU work from the
+  command buffer containing the current precise-readback copy. The accepted path remains one
+  submission and one timeline wait unless the explicit phase selector is enabled together with
+  readback statistics.
+- In split mode, the scheduler first waits for the last previously submitted tick, then submits and
+  waits for the current readback command buffer. Counters report prior-backlog wait, submission,
+  and current-command-buffer wait separately. This intentionally changes scheduling and is
+  diagnostic evidence only, never an FPS comparison.
+- The Deck launcher accepts exactly `0` or `1` from an environment override or profile file,
+  records the resolved value and source in every run, and fails closed to `0`. The emulator also
+  refuses to enable phase timing when readback statistics are disabled.
+- The foreground gate requires correct lighting, geometry, controller, 48 kHz stereo audio, and a
+  clean exit before the timing split can guide the next optimization. The selector must be restored
+  to `0` after the evidence run.
+- The first discovery binary exposed a request-aggregation omission: per-buffer phase values were
+  measured but not added to the request sample. That run is excluded. The corrected exact binary
+  is 374,359,136 bytes with SHA-256 `c4892933137727a262151138e1baa31a393082ec51bd978b5feb300b04d3f8de`.
+- Corrected foreground runs reached the lit cannery scene with Delsin, full geometry, Steam Deck
+  controller slot 0, and the main 48 kHz stereo output. One run was stopped externally after its
+  screenshot; a direct X11 window-destroy attempt is separately retained as an exit-133 teardown
+  failure and is not treated as a game or phase-timing crash.
+- The final exact run used shadPS4's supported IPC stop path and exited 0 after 1:59 with the cache
+  dumped. Across its final eight intervals, 1,024 requests spent 800.815 ms waiting for prior
+  submissions (23.926% of measured finish time) and 2,474.714 ms waiting for the command buffer
+  containing the current readback (73.938%). The earlier corrected run measured 38.091% and
+  59.963%, so both phases are material while the current command-buffer side is larger.
+- The current-command-buffer phase is not a pure copy timer: it can contain GPU commands recorded
+  before the readback copy. The result therefore supports finer command-buffer workload counters,
+  not a claim that readback copies alone own 59.963-73.938% of the stall. Split timing remains
+  disabled by default and is accepted as diagnostic infrastructure only; it makes no FPS claim.
+
 ## Runtime results
 
 - The legally dumped CUSA00223 package installs and launches from Steam Gaming Mode into foreground

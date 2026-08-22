@@ -13,6 +13,7 @@ class SummarizeReadbacksTest(unittest.TestCase):
 """
         text = text.replace(
             "amplification=256.0x",
+            "phase_split=1 prior_wait_total_ms=2.000 current_wait_total_ms=0.800 "
             "discard_probe_hits=2 discard_probe_valid=2 discard_write_span_bytes=8192 "
             "discard_page_write_bytes=4096 discard_dirty_bytes=2048 discard_covered_bytes=2048 "
             "discard_full_requests=1 discard_zero_dirty_requests=0 tracked_buffers=2 "
@@ -25,6 +26,7 @@ class SummarizeReadbacksTest(unittest.TestCase):
             "0x0+0:0r/0w/0d/0c/0b/0.000ms] amplification=256.0x",
         ).replace(
             "amplification=128.0x",
+            "phase_split=1 prior_wait_total_ms=0.600 current_wait_total_ms=0.300 "
             "discard_probe_hits=1 discard_probe_valid=1 discard_write_span_bytes=4096 "
             "discard_page_write_bytes=2048 discard_dirty_bytes=1024 discard_covered_bytes=512 "
             "discard_full_requests=0 discard_zero_dirty_requests=0 tracked_buffers=1 "
@@ -44,6 +46,11 @@ class SummarizeReadbacksTest(unittest.TestCase):
         self.assertEqual(result["finish_avg_ms_per_request"], 1.0)
         self.assertEqual(result["request_rate"], 100.0)
         self.assertEqual(result["finish_share_pct"], 10.0)
+        self.assertTrue(result["phase_split"])
+        self.assertEqual(result["prior_wait_total_ms"], 2.6)
+        self.assertEqual(result["current_wait_total_ms"], 1.1)
+        self.assertEqual(result["prior_wait_share_pct"], 65.0)
+        self.assertEqual(result["current_wait_share_pct"], 27.5)
         self.assertEqual(result["hottest_pages"][0]["address"], "0x1000")
         self.assertEqual(result["hottest_pages"][0]["requests"], 4)
         self.assertEqual(result["hottest_sites"][0]["pc"], "0xaaa")
@@ -80,6 +87,9 @@ class SummarizeReadbacksTest(unittest.TestCase):
         self.assertEqual(intervals[0]["window_kib"], 512)
         self.assertEqual(intervals[0]["site_window_kib"], 0)
         self.assertEqual(intervals[0]["site_window_hits"], 0)
+        self.assertEqual(intervals[0]["phase_split"], 0)
+        self.assertEqual(intervals[0]["prior_wait_total_ms"], 0.0)
+        self.assertEqual(intervals[0]["current_wait_total_ms"], 0.0)
         self.assertEqual(intervals[0]["discard_probe_hits"], 0)
         self.assertEqual(intervals[0]["discard_full_requests"], 0)
         self.assertEqual(intervals[0]["tracked_buffers"], 0)
