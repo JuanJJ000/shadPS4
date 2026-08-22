@@ -503,6 +503,21 @@ session.
   not a claim that readback copies alone own 59.963-73.938% of the stall. Split timing remains
   disabled by default and is accepted as diagnostic infrastructure only; it makes no FPS claim.
 
+### Precise-readback GPU timestamp diagnostic
+
+- Issue 75 extends only the existing opt-in phase-timing path with a two-slot Vulkan timestamp
+  query. One timestamp is recorded after all earlier commands in the current command buffer and
+  immediately before the readback pre-barrier; the second follows the buffer copy.
+- The query result is consumed only after the existing synchronous finish has completed. Queue
+  timestamp valid bits are applied before converting the wrapped tick delta with the physical
+  device's timestamp period.
+- Each interval reports timestamp availability, valid bits, period, successful/failed samples,
+  total GPU time from the pre-barrier through the copy, and that span as a percentage of the
+  current-command-buffer CPU wait. Older logs remain readable with zero-valued defaults.
+- Selector-off creates no query pool and records no timestamp commands. Unsupported queues fail
+  closed with an explicit warning. This is a bounded attribution diagnostic, not an FPS change or
+  proof that CPU handling outside the timestamp span is free.
+
 ## Runtime results
 
 - The legally dumped CUSA00223 package installs and launches from Steam Gaming Mode into foreground

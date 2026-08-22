@@ -14,6 +14,9 @@ class SummarizeReadbacksTest(unittest.TestCase):
         text = text.replace(
             "amplification=256.0x",
             "phase_split=1 prior_wait_total_ms=2.000 current_wait_total_ms=0.800 "
+            "gpu_timestamp=1 gpu_timestamp_bits=64 gpu_timestamp_period_ns=1.000 "
+            "gpu_timestamp_samples=2 gpu_timestamp_failures=0 gpu_copy_total_ms=0.200 "
+            "gpu_copy_share_current_pct=25.000 "
             "discard_probe_hits=2 discard_probe_valid=2 discard_write_span_bytes=8192 "
             "discard_page_write_bytes=4096 discard_dirty_bytes=2048 discard_covered_bytes=2048 "
             "discard_full_requests=1 discard_zero_dirty_requests=0 tracked_buffers=2 "
@@ -27,6 +30,9 @@ class SummarizeReadbacksTest(unittest.TestCase):
         ).replace(
             "amplification=128.0x",
             "phase_split=1 prior_wait_total_ms=0.600 current_wait_total_ms=0.300 "
+            "gpu_timestamp=1 gpu_timestamp_bits=64 gpu_timestamp_period_ns=1.000 "
+            "gpu_timestamp_samples=1 gpu_timestamp_failures=0 gpu_copy_total_ms=0.100 "
+            "gpu_copy_share_current_pct=33.333 "
             "discard_probe_hits=1 discard_probe_valid=1 discard_write_span_bytes=4096 "
             "discard_page_write_bytes=2048 discard_dirty_bytes=1024 discard_covered_bytes=512 "
             "discard_full_requests=0 discard_zero_dirty_requests=0 tracked_buffers=1 "
@@ -51,6 +57,13 @@ class SummarizeReadbacksTest(unittest.TestCase):
         self.assertEqual(result["current_wait_total_ms"], 1.1)
         self.assertEqual(result["prior_wait_share_pct"], 65.0)
         self.assertEqual(result["current_wait_share_pct"], 27.5)
+        self.assertTrue(result["gpu_timestamp"])
+        self.assertEqual(result["gpu_timestamp_bits"], [64])
+        self.assertEqual(result["gpu_timestamp_period_ns"], [1.0])
+        self.assertEqual(result["gpu_timestamp_samples"], 3)
+        self.assertEqual(result["gpu_timestamp_failures"], 0)
+        self.assertEqual(result["gpu_copy_total_ms"], 0.3)
+        self.assertEqual(result["gpu_copy_share_current_pct"], 27.273)
         self.assertEqual(result["hottest_pages"][0]["address"], "0x1000")
         self.assertEqual(result["hottest_pages"][0]["requests"], 4)
         self.assertEqual(result["hottest_sites"][0]["pc"], "0xaaa")
@@ -90,6 +103,12 @@ class SummarizeReadbacksTest(unittest.TestCase):
         self.assertEqual(intervals[0]["phase_split"], 0)
         self.assertEqual(intervals[0]["prior_wait_total_ms"], 0.0)
         self.assertEqual(intervals[0]["current_wait_total_ms"], 0.0)
+        self.assertEqual(intervals[0]["gpu_timestamp"], 0)
+        self.assertEqual(intervals[0]["gpu_timestamp_bits"], 0)
+        self.assertEqual(intervals[0]["gpu_timestamp_period_ns"], 0.0)
+        self.assertEqual(intervals[0]["gpu_timestamp_samples"], 0)
+        self.assertEqual(intervals[0]["gpu_timestamp_failures"], 0)
+        self.assertEqual(intervals[0]["gpu_copy_total_ms"], 0.0)
         self.assertEqual(intervals[0]["discard_probe_hits"], 0)
         self.assertEqual(intervals[0]["discard_full_requests"], 0)
         self.assertEqual(intervals[0]["tracked_buffers"], 0)

@@ -143,6 +143,39 @@ BufferCache::BufferCache(const Vulkan::Instance& instance_, Vulkan::Scheduler& s
         LOG_INFO(Render_Vulkan,
                  "Precise readback phase timing enabled; prior GPU work is completed before the "
                  "current readback submission");
+        const auto queue_families = instance.GetPhysicalDevice().getQueueFamilyProperties();
+        const u32 queue_family = instance.GetGraphicsQueueFamilyIndex();
+        if (queue_family < queue_families.size()) {
+            precise_readback_gpu_timestamp_valid_bits =
+                queue_families[queue_family].timestampValidBits;
+            precise_readback_gpu_timestamp_period_ns =
+                instance.GetPhysicalDevice().getProperties().limits.timestampPeriod;
+        }
+        if (precise_readback_gpu_timestamp_valid_bits != 0 &&
+            precise_readback_gpu_timestamp_period_ns > 0.0) {
+            const vk::QueryPoolCreateInfo query_pool_info = {
+                .queryType = vk::QueryType::eTimestamp,
+                .queryCount = 2,
+            };
+            auto [result, pool] = instance.GetDevice().createQueryPoolUnique(query_pool_info);
+            if (result == vk::Result::eSuccess) {
+                precise_readback_gpu_timestamp_pool = std::move(pool);
+                LOG_INFO(Render_Vulkan,
+                         "Precise readback GPU timestamps enabled with {} valid bits and a {:.3f} "
+                         "ns period",
+                         precise_readback_gpu_timestamp_valid_bits,
+                         precise_readback_gpu_timestamp_period_ns);
+            } else {
+                LOG_WARNING(Render_Vulkan,
+                            "Precise readback GPU timestamps unavailable: query pool creation "
+                            "returned {}",
+                            vk::to_string(result));
+            }
+        } else {
+            LOG_WARNING(Render_Vulkan,
+                        "Precise readback GPU timestamps unavailable on graphics queue {}",
+                        queue_family);
+        }
     }
     if (precise_readback_write_site_pc != 0) {
         LOG_INFO(Render_Vulkan, "Precise write-site window enabled for guest PC {:#x}: {} KiB",
@@ -227,6 +260,9 @@ void BufferCache::ReadMemory(VAddr device_addr, u64 size, bool is_write,
             request_sample.call_count += sample.call_count;
             request_sample.copy_count += sample.copy_count;
             request_sample.finish_nanoseconds += sample.finish_nanoseconds;
+            request_sample.gpu_copy_nanoseconds += sample.gpu_copy_nanoseconds;
+            request_sample.gpu_timestamp_samples += sample.gpu_timestamp_samples;
+            request_sample.gpu_timestamp_failures += sample.gpu_timestamp_failures;
             request_sample.prior_wait_nanoseconds += sample.prior_wait_nanoseconds;
             request_sample.submit_nanoseconds += sample.submit_nanoseconds;
             request_sample.current_wait_nanoseconds += sample.current_wait_nanoseconds;
@@ -309,6 +345,9 @@ void BufferCache::RecordPreciseReadbackStats(VAddr device_addr, u64 size, bool i
     precise_readback_downloaded_bytes += sample.bytes;
     precise_readback_no_downloads += sample.bytes == 0;
     precise_readback_finish_nanoseconds += sample.finish_nanoseconds;
+    precise_readback_gpu_copy_nanoseconds += sample.gpu_copy_nanoseconds;
+    precise_readback_gpu_timestamp_samples += sample.gpu_timestamp_samples;
+    precise_readback_gpu_timestamp_failures += sample.gpu_timestamp_failures;
     precise_readback_prior_wait_nanoseconds += sample.prior_wait_nanoseconds;
     precise_readback_submit_nanoseconds += sample.submit_nanoseconds;
     precise_readback_current_wait_nanoseconds += sample.current_wait_nanoseconds;
@@ -538,6 +577,8 @@ void BufferCache::LogPreciseReadbackStats() {
         static_cast<double>(precise_readback_prior_wait_nanoseconds) / 1'000'000.0;
     const double current_wait_total_ms =
         static_cast<double>(precise_readback_current_wait_nanoseconds) / 1'000'000.0;
+    const double gpu_copy_total_ms =
+        static_cast<double>(precise_readback_gpu_copy_nanoseconds) / 1'000'000.0;
     const double wait_total_ms =
         static_cast<double>(precise_readback_wait_nanoseconds) / 1'000'000.0;
     const double submit_share = precise_readback_finish_nanoseconds != 0
@@ -563,6 +604,11 @@ void BufferCache::LogPreciseReadbackStats() {
                                                 static_cast<double>(
                                                     precise_readback_finish_nanoseconds)
                                           : 0.0;
+    const double gpu_copy_share_of_current_wait =
+        precise_readback_current_wait_nanoseconds != 0
+            ? static_cast<double>(precise_readback_gpu_copy_nanoseconds) * 100.0 /
+                  static_cast<double>(precise_readback_current_wait_nanoseconds)
+            : 0.0;
     const double average_outstanding_depth =
         static_cast<double>(precise_readback_outstanding_depth_sum) /
         static_cast<double>(precise_readback_requests);
@@ -589,7 +635,10 @@ void BufferCache::LogPreciseReadbackStats() {
         "submit_total_ms={:.3f} wait_total_ms={:.3f} submit_share_pct={:.1f} "
         "wait_share_pct={:.1f} phase_split={} prior_wait_total_ms={:.3f} "
         "current_wait_total_ms={:.3f} prior_wait_share_pct={:.1f} "
-        "current_wait_share_pct={:.1f} queued_requests={} avg_outstanding_depth={:.2f} "
+        "current_wait_share_pct={:.1f} gpu_timestamp={} gpu_timestamp_bits={} "
+        "gpu_timestamp_period_ns={:.3f} gpu_timestamp_samples={} "
+        "gpu_timestamp_failures={} gpu_copy_total_ms={:.3f} "
+        "gpu_copy_share_current_pct={:.3f} queued_requests={} avg_outstanding_depth={:.2f} "
         "max_outstanding_depth={} wall_ms={:.3f} request_rate={:.1f} "
         "finish_share_pct={:.1f} site_window_kib={} site_window_hits={} "
         "discard_probe_hits={} discard_probe_valid={} discard_write_span_bytes={} "
@@ -616,7 +665,10 @@ void BufferCache::LogPreciseReadbackStats() {
         submit_total_ms, wait_total_ms, submit_share, wait_share,
         static_cast<u64>(precise_readback_phase_timing_enabled), prior_wait_total_ms,
         current_wait_total_ms, prior_wait_share, current_wait_share,
-        precise_readback_queued_requests,
+        static_cast<u64>(static_cast<bool>(precise_readback_gpu_timestamp_pool)),
+        precise_readback_gpu_timestamp_valid_bits, precise_readback_gpu_timestamp_period_ns,
+        precise_readback_gpu_timestamp_samples, precise_readback_gpu_timestamp_failures,
+        gpu_copy_total_ms, gpu_copy_share_of_current_wait, precise_readback_queued_requests,
         average_outstanding_depth, precise_readback_max_outstanding_depth, wall_ms,
         requests_per_second, finish_share, precise_readback_write_site_window_size / 1_KB,
         precise_readback_write_site_window_hits,
@@ -677,6 +729,9 @@ void BufferCache::LogPreciseReadbackStats() {
     precise_readback_downloaded_bytes = 0;
     precise_readback_no_downloads = 0;
     precise_readback_finish_nanoseconds = 0;
+    precise_readback_gpu_copy_nanoseconds = 0;
+    precise_readback_gpu_timestamp_samples = 0;
+    precise_readback_gpu_timestamp_failures = 0;
     precise_readback_prior_wait_nanoseconds = 0;
     precise_readback_submit_nanoseconds = 0;
     precise_readback_current_wait_nanoseconds = 0;
@@ -738,6 +793,13 @@ BufferCache::ReadbackDownloadSample BufferCache::DownloadBufferMemory(Buffer& bu
     download_buffer.Commit();
     scheduler.EndRendering();
     const auto cmdbuf = scheduler.CommandBuffer();
+    const bool measure_gpu_copy =
+        measure_finish && static_cast<bool>(precise_readback_gpu_timestamp_pool);
+    if (measure_gpu_copy) {
+        cmdbuf.resetQueryPool(*precise_readback_gpu_timestamp_pool, 0, 2);
+        cmdbuf.writeTimestamp2(vk::PipelineStageFlagBits2::eAllCommands,
+                               *precise_readback_gpu_timestamp_pool, 0);
+    }
     // Synchronize prior GPU writes to this buffer before the transfer read
     const vk::BufferMemoryBarrier2 pre_barrier = {
         .srcStageMask = vk::PipelineStageFlagBits2::eAllCommands,
@@ -754,6 +816,10 @@ BufferCache::ReadbackDownloadSample BufferCache::DownloadBufferMemory(Buffer& bu
         .pBufferMemoryBarriers = &pre_barrier,
     });
     cmdbuf.copyBuffer(buffer.buffer, download_buffer.Handle(), copies);
+    if (measure_gpu_copy) {
+        cmdbuf.writeTimestamp2(vk::PipelineStageFlagBits2::eAllCommands,
+                               *precise_readback_gpu_timestamp_pool, 1);
+    }
     const VAddr buffer_addr = buffer.CpuAddr();
     const auto write_data = [this, copies = std::move(copies), buffer_addr, device_addr, size,
                              download, offset, total_size_bytes]() {
@@ -786,6 +852,31 @@ BufferCache::ReadbackDownloadSample BufferCache::DownloadBufferMemory(Buffer& bu
             static_cast<u64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
                                  std::chrono::steady_clock::now() - finish_start)
                                  .count());
+    }
+    if (measure_gpu_copy) {
+        std::array<u64, 2> timestamps{};
+        const auto result = instance.GetDevice().getQueryPoolResults(
+            *precise_readback_gpu_timestamp_pool, 0, timestamps.size(), sizeof(timestamps),
+            timestamps.data(), sizeof(u64),
+            vk::QueryResultFlagBits::e64 | vk::QueryResultFlagBits::eWait);
+        if (result == vk::Result::eSuccess) {
+            u64 delta_ticks = timestamps[1] - timestamps[0];
+            if (precise_readback_gpu_timestamp_valid_bits < 64) {
+                const u64 valid_mask = (u64{1} << precise_readback_gpu_timestamp_valid_bits) - 1;
+                delta_ticks &= valid_mask;
+            }
+            const long double gpu_copy_nanoseconds =
+                static_cast<long double>(delta_ticks) *
+                static_cast<long double>(precise_readback_gpu_timestamp_period_ns);
+            if (gpu_copy_nanoseconds <= static_cast<long double>(std::numeric_limits<u64>::max())) {
+                sample.gpu_copy_nanoseconds = static_cast<u64>(gpu_copy_nanoseconds);
+                sample.gpu_timestamp_samples = 1;
+            } else {
+                sample.gpu_timestamp_failures = 1;
+            }
+        } else {
+            sample.gpu_timestamp_failures = 1;
+        }
     }
     write_data();
     return sample;
