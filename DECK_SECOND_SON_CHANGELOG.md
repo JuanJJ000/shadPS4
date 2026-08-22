@@ -537,6 +537,20 @@ session.
   workload-attribution probe, not a performance change: foreground evidence must still prove
   correct rendering, controller input, stereo audio, zero query failures/exhaustion, and a clean
   exit before the result can be accepted.
+- The exact feature binary (`5afbdf81`, 374,479,656 bytes, SHA-256
+  `9287b1f3d2b2bfc7a4666bc28107dad9e93b5875a1798664638996ab78dae48a`) completed the foreground
+  run `20260821-231302-fork`. It reached correctly lit cannery gameplay, retained the Steam Deck
+  controller in slot 0 with motion sensors, opened the main 48 kHz stereo output, saved both clean
+  and HUD screenshots, dumped the cache, and exited 0 through the supported IPC stop path.
+- Across the final eight intervals, all 677 measured downloads produced valid envelope triplets
+  with zero query failures or slot exhaustion. GPU time before the readback was 2,118.567 ms; the
+  barrier-and-copy span was 23.927 ms; and the full GPU envelope was 2,145.069 ms versus 2,569.242
+  ms of current-command-buffer CPU wait. The envelope therefore explains 83.490% of that wait,
+  while the measured copy span explains only 0.931%.
+- This accepts the diagnostic, not an optimization. About 98.8% of the measured GPU envelope was
+  already recorded before the readback barrier; the remaining CPU-wait gap can include driver,
+  timeline-signal, scheduling, and wake-up costs. The next gate should partition or reduce the
+  earlier command stream without weakening precise-readback correctness.
 
 ## Runtime results
 
