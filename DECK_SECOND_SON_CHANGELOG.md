@@ -503,6 +503,21 @@ session.
   not a claim that readback copies alone own 59.963-73.938% of the stall. Split timing remains
   disabled by default and is accepted as diagnostic infrastructure only; it makes no FPS claim.
 
+### Precise-readback GPU timestamp diagnostic
+
+- Issue 75 extends only the existing opt-in phase-timing path with a two-slot Vulkan timestamp
+  query. One timestamp is recorded after all earlier commands in the current command buffer and
+  immediately before the readback pre-barrier; the second follows the buffer copy.
+- The query result is consumed only after the existing synchronous finish has completed. Queue
+  timestamp valid bits are applied before converting the wrapped tick delta with the physical
+  device's timestamp period.
+- Each interval reports timestamp availability, valid bits, period, successful/failed samples,
+  total GPU time from the pre-barrier through the copy, and that span as a percentage of the
+  current-command-buffer CPU wait. Older logs remain readable with zero-valued defaults.
+- Selector-off creates no query pool and records no timestamp commands. Unsupported queues fail
+  closed with an explicit warning. This is a bounded attribution diagnostic, not an FPS change or
+  proof that CPU handling outside the timestamp span is free.
+
 ## Runtime results
 
 - The legally dumped CUSA00223 package installs and launches from Steam Gaming Mode into foreground
@@ -530,6 +545,14 @@ session.
   into GPU-owned device-local buffers. A recent-page batch prototype increased the fault storm, and
   a narrow-hot-write prototype increased synchronization frequency without improving FPS. Both
   experiments were fully reverted and are retained only as run evidence.
+- The exact issue 75 binary (`cb16d254`, SHA-256 `05feccfeae0cb515f37b0be4de535dceb54d60b23377e0a62d2d018d9f18dc78`)
+  completed two foreground runs with 64-bit, 10 ns GPU timestamps and zero query failures. The
+  primary run `20260821-224357-fork` measured 664 timestamped downloads in its final eight intervals:
+  33.495 ms from the pre-barrier through the copy versus 3,744.076 ms of current-command-buffer CPU
+  wait, or 0.895%. The screenshot replicate `20260821-224527-fork` measured 1.059% over its final
+  eight intervals, saved clean game/HUD images, retained controller and 48 kHz stereo output, dumped
+  the cache, and exited 0. This proves the measured barrier/copy span is a small part of the current
+  wait in these runs; it does not prove where the remaining time goes or provide an FPS gain.
 - Remaining limitation: the correctness path is substantially below real-time on the Steam Deck.
   Precise GPU-to-CPU readbacks dominate frame time, so 30 FPS is not yet achieved even though the
   title is now visually correct, audible, controller-connected, saveable, and in gameplay.
