@@ -107,6 +107,26 @@ case "${sleepq_stats}" in
     sleepq_stats_source="invalid-fallback"
     ;;
 esac
+sleepq_spin_yield_after_file="${SECOND_SON_SLEEPQ_SPIN_YIELD_AFTER_FILE:-${data_root}/sleepq-spin-yield-after.txt}"
+sleepq_spin_yield_after_source="default"
+if [[ -n "${SECOND_SON_SLEEPQ_SPIN_YIELD_AFTER:-}" ]]; then
+  sleepq_spin_yield_after="${SECOND_SON_SLEEPQ_SPIN_YIELD_AFTER}"
+  sleepq_spin_yield_after_source="environment"
+elif [[ -r "${sleepq_spin_yield_after_file}" ]]; then
+  IFS= read -r sleepq_spin_yield_after <"${sleepq_spin_yield_after_file}" || true
+  sleepq_spin_yield_after="${sleepq_spin_yield_after:-0}"
+  sleepq_spin_yield_after_source="${sleepq_spin_yield_after_file}"
+else
+  sleepq_spin_yield_after="0"
+fi
+case "${sleepq_spin_yield_after}" in
+  0|32|64|128|256|512|1024|2048|4096|8192|16384|32768|65536) ;;
+  *)
+    echo "Ignoring invalid sleep-queue spin-yield threshold '${sleepq_spin_yield_after}'; expected 0 or a power of two from 32 through 65536" >&2
+    sleepq_spin_yield_after="0"
+    sleepq_spin_yield_after_source="invalid-fallback"
+    ;;
+esac
 sleepq_stats_interval_file="${SECOND_SON_SLEEPQ_STATS_INTERVAL_FILE:-${data_root}/sleepq-stats-interval.txt}"
 sleepq_stats_interval_source="default"
 if [[ -n "${SECOND_SON_SLEEPQ_STATS_INTERVAL:-}" ]]; then
@@ -337,6 +357,8 @@ EOF
   echo "precise_readback_write_discard_probe_source=${readback_write_discard_probe_source}"
   echo "sleepq_stats=${sleepq_stats}"
   echo "sleepq_stats_source=${sleepq_stats_source}"
+  echo "sleepq_spin_yield_after=${sleepq_spin_yield_after}"
+  echo "sleepq_spin_yield_after_source=${sleepq_spin_yield_after_source}"
   echo "sleepq_stats_interval=${sleepq_stats_interval}"
   echo "sleepq_stats_interval_source=${sleepq_stats_interval_source}"
   echo "job_worker_cpus=${job_worker_cpus}"
@@ -605,6 +627,7 @@ XDG_DATA_HOME="${xdg_data}" MANGOHUD_CONFIGFILE="${mangohud_config}" \
   SHADPS4_PRECISE_READBACK_WRITE_SITE_WINDOW="${SHADPS4_PRECISE_READBACK_WRITE_SITE_WINDOW:-${readback_write_site_window}}" \
   SHADPS4_PRECISE_READBACK_WRITE_DISCARD_PROBE_PC="${SHADPS4_PRECISE_READBACK_WRITE_DISCARD_PROBE_PC:-${readback_write_discard_probe}}" \
   SHADPS4_SLEEPQ_STATS="${SHADPS4_SLEEPQ_STATS:-${sleepq_stats}}" \
+  SHADPS4_SLEEPQ_SPIN_YIELD_AFTER="${SHADPS4_SLEEPQ_SPIN_YIELD_AFTER:-${sleepq_spin_yield_after}}" \
   SHADPS4_SLEEPQ_STATS_INTERVAL="${SHADPS4_SLEEPQ_STATS_INTERVAL:-${sleepq_stats_interval}}" \
   "${command[@]}" 2>&1 | tee "${run_dir}/console.log"
 exit_status="${PIPESTATUS[0]}"

@@ -29,6 +29,7 @@ static constexpr size_t StatsThreadClassCount = 5;
 struct SleepQueueStatsConfig {
     bool enabled{};
     u64 interval{DefaultStatsInterval};
+    u64 spin_yield_after{};
 };
 
 static const SleepQueueStatsConfig& GetStatsConfig() {
@@ -42,6 +43,20 @@ static const SleepQueueStatsConfig& GetStatsConfig() {
             const auto parsed = std::strtoull(value, &end, 10);
             if (end != value && *end == '\0' && parsed >= 1'024 && parsed <= 1'000'000'000) {
                 result.interval = parsed;
+            }
+        }
+        if (const char* value = std::getenv("SHADPS4_SLEEPQ_SPIN_YIELD_AFTER")) {
+            char* end = nullptr;
+            const auto parsed = std::strtoull(value, &end, 10);
+            if (end != value && *end == '\0' &&
+                (parsed == 0 ||
+                 (parsed >= 32 && parsed <= 65'536 && (parsed & (parsed - 1)) == 0))) {
+                result.spin_yield_after = parsed;
+            } else {
+                LOG_WARNING(Kernel_Pthread,
+                            "Ignoring invalid sleep-queue spin-yield threshold '{}'; expected 0 "
+                            "or a power of two from 32 through 65536",
+                            value);
             }
         }
         return result;
@@ -291,7 +306,7 @@ void SleepqLock(void* wchan) {
     const u32 bucket = SC_HASH(wchan);
     SleepQueueChain* sc = &sc_table[bucket];
     if (!GetStatsConfig().enabled) {
-        sc->sc_lock.lock();
+        sc->sc_lock.lock_with_yield_after(GetStatsConfig().spin_yield_after);
         return;
     }
 
@@ -306,7 +321,7 @@ void SleepqLock(void* wchan) {
         stats.contended_waiters[static_cast<size_t>(current_thread_class)].fetch_add(
             1, std::memory_order_relaxed);
         wait_started_nanoseconds = SteadyClockNanoseconds();
-        sc->sc_lock.lock();
+        sc->sc_lock.lock_with_yield_after(GetStatsConfig().spin_yield_after);
     }
     sc->owner_class.store(static_cast<u8>(current_thread_class), std::memory_order_release);
     const u64 acquisition = stats.acquisitions.fetch_add(1, std::memory_order_relaxed) + 1;
