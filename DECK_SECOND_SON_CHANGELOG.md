@@ -552,6 +552,32 @@ session.
   timeline-signal, scheduling, and wake-up costs. The next gate should partition or reduce the
   earlier command stream without weakening precise-readback correctness.
 
+### Bounded early precise-readback submits
+
+- Issue 79 / PR 80 turns the command-envelope result into a bounded, opt-in scheduling change.
+  Successfully emitted guest draws and dispatches are counted, and a validated nonzero budget
+  submits the current Vulkan command buffer without waiting. The existing precise-readback Finish,
+  copy, CPU writeback, and dirty tracking remain intact. Zero is the code and launcher default.
+- The Deck launcher accepts only zero or powers of two from 32 through 4096, records the resolved
+  value and source, and fails closed to zero. Runtime counters attribute residual commands before
+  each readback plus early-submit count, draw count, and dispatch count. The exact feature binary
+  is 374,492,144 bytes with SHA-256
+  `8ac1d9b3e4def5627d86f5df953c69a7774f1815552e767d2b5005f56c651a1c`.
+- Six exact-binary foreground Gamescope runs reached the same correctly lit cannery tutorial scene
+  with Delsin, complete geometry and text, controller slot 0 with motion sensors, the main 48 kHz
+  stereo output, zero query failures or slot exhaustion, cache closure, and exit status 0.
+- The primary two-pair final-600 comparison used budget 256. Candidate averages were 9.290 median
+  FPS, 9.117 mean FPS, 108.236 ms median frame time, and 141.632 ms p95 frame time. Control averages
+  were 8.562 median FPS, 8.426 mean FPS, 116.797 ms median frame time, and 159.152 ms p95 frame time.
+  That is +8.500% median FPS, +8.198% mean FPS, -7.330% median frame time, and -11.008% p95 frame
+  time, with +10.470% median CPU load.
+- A later cooled-control/hot-candidate pair also favored the candidate, but its 6.062-FPS control
+  and 64% median GPU load were outliers. It is preserved as directionally supportive evidence and
+  excluded from the headline estimate rather than used to inflate the result.
+- Budget 256 is accepted for the Second Son Deck profile. This is a modest stationary-scene and
+  frame-pacing improvement, not a 30-FPS result or proof of whole-game playability; the measured
+  scene remains roughly 9-10 FPS.
+
 ## Runtime results
 
 - The legally dumped CUSA00223 package installs and launches from Steam Gaming Mode into foreground
