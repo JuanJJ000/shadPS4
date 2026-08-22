@@ -10,6 +10,7 @@
 #include "common/debug.h"
 #include "common/logging/log.h"
 #include "common/scope_exit.h"
+#include "common/spin_lock.h"
 #include "core/memory.h"
 #include "video_core/amdgpu/liverpool.h"
 #include "video_core/buffer_cache/buffer_cache.h"
@@ -59,6 +60,21 @@ BufferCache::BufferCache(const Vulkan::Instance& instance_, Vulkan::Scheduler& s
     const char* readback_stats = std::getenv("SHADPS4_PRECISE_READBACK_STATS");
     precise_readback_stats_enabled =
         readback_stats != nullptr && readback_stats[0] != '\0' && readback_stats[0] != '0';
+    if (const char* spinlock_stats = std::getenv("SHADPS4_SPINLOCK_STATS")) {
+        const std::string_view value{spinlock_stats};
+        if (value == "1") {
+            spinlock_stats_enabled = precise_readback_stats_enabled;
+            if (!precise_readback_stats_enabled) {
+                LOG_WARNING(Render_Vulkan,
+                            "Ignoring SpinLock statistics because readback statistics are disabled");
+            }
+        } else if (value != "0" && !value.empty()) {
+            LOG_WARNING(Render_Vulkan,
+                        "Ignoring invalid SpinLock statistics selector '{}'; expected 0 or 1",
+                        value);
+        }
+    }
+    Common::SetSpinLockStatsEnabled(spinlock_stats_enabled);
     if (const char* phase_timing = std::getenv("SHADPS4_PRECISE_READBACK_PHASE_TIMING")) {
         const std::string_view value{phase_timing};
         if (value == "1") {
@@ -791,6 +807,32 @@ void BufferCache::LogPreciseReadbackStats() {
         first_site.last_context.rcx, first_site.last_context.rdx, first_site.last_context.rsi,
         first_site.last_context.rdi, first_site.last_context.rbp, first_site.last_context.rsp,
         first_site.min_rcx, first_site.max_rcx, first_site.min_rdx, first_site.max_rdx);
+
+    if (spinlock_stats_enabled) {
+        const auto stats = Common::ConsumeSpinLockStats();
+        const auto& generic = stats[static_cast<size_t>(Common::SpinLockClass::Generic)];
+        const auto& page = stats[static_cast<size_t>(Common::SpinLockClass::PageManager)];
+        const auto& region = stats[static_cast<size_t>(Common::SpinLockClass::RegionManager)];
+        const auto& slab = stats[static_cast<size_t>(Common::SpinLockClass::SlabHeap)];
+        const auto& sleepq = stats[static_cast<size_t>(Common::SpinLockClass::SleepQueue)];
+        LOG_INFO(
+            Render_Vulkan,
+            "SpinLock class stats: enabled=1 "
+            "generic={}/{}/{}/{}/{}/{} page={}/{}/{}/{}/{}/{} "
+            "region={}/{}/{}/{}/{}/{} slab={}/{}/{}/{}/{}/{} "
+            "sleepq={}/{}/{}/{}/{}/{} "
+            "fields=acquisitions/contended/spins/max_spins/try_attempts/try_failures",
+            generic.acquisitions, generic.contended_acquisitions, generic.spin_iterations,
+            generic.maximum_spin_iterations, generic.try_attempts, generic.try_failures,
+            page.acquisitions, page.contended_acquisitions, page.spin_iterations,
+            page.maximum_spin_iterations, page.try_attempts, page.try_failures,
+            region.acquisitions, region.contended_acquisitions, region.spin_iterations,
+            region.maximum_spin_iterations, region.try_attempts, region.try_failures,
+            slab.acquisitions, slab.contended_acquisitions, slab.spin_iterations,
+            slab.maximum_spin_iterations, slab.try_attempts, slab.try_failures,
+            sleepq.acquisitions, sleepq.contended_acquisitions, sleepq.spin_iterations,
+            sleepq.maximum_spin_iterations, sleepq.try_attempts, sleepq.try_failures);
+    }
 
     precise_readback_requests = 0;
     precise_readback_queued_requests = 0;

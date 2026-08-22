@@ -318,6 +318,7 @@ private:
     };
 
     bool precise_readback_stats_enabled{};
+    bool spinlock_stats_enabled{};
     bool precise_readback_phase_timing_enabled{};
     bool precise_readback_gpu_envelope_enabled{};
     vk::UniqueQueryPool precise_readback_gpu_timestamp_pool{};

@@ -360,7 +360,7 @@ struct PageManager::Impl {
 #ifdef PTHREAD_ADAPTIVE_MUTEX_INITIALIZER_NP
     using LockType = Common::AdaptiveMutex;
 #else
-    using LockType = Common::SpinLock;
+    using LockType = Common::TaggedSpinLock<Common::SpinLockClass::PageManager>;
 #endif
     std::array<LockType, NUM_ADDRESS_LOCKS> locks{};
 };

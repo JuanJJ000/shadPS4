@@ -22,7 +22,7 @@ namespace VideoCore {
 #ifdef PTHREAD_ADAPTIVE_MUTEX_INITIALIZER_NP
 using LockType = Common::AdaptiveMutex;
 #else
-using LockType = Common::SpinLock;
+using LockType = Common::TaggedSpinLock<Common::SpinLockClass::RegionManager>;
 #endif
 
 /**
