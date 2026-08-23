@@ -224,6 +224,21 @@ session.
 - The ancestry merge was conflict-free and changed only that one index. All fork-only controller
   pose helpers and Steam Deck mappings remain intact; the full Deck build passes.
 
+### Upstream pre-SSA maintenance sync — 2026-08-23, 02:28:00 AM CDT
+
+- Issue 93 tests the exact upstream boundary before the shader SSA rewrite. Selected Deck runtime
+  `4bea1e30498a8cdca1a63959f36ccc4d0eec9a4b` is merged with upstream
+  `3e462bf01bcf6ec2940857547e01255271f09df4`; candidate merge
+  `4cb456a079b22728a35a77234c67212e86ef3695` carries only the Nix development-shell dependency
+  update, NP authorization defaults, and trophy-name display correction.
+- The merge is conflict-free and changes four files. It contains none of the rejected SSA rewrite,
+  virtual-register, SSA-destruction, metadata-warning, or Neo MIMG-revert commits.
+- This is the negative-control boundary for the upstream regression bisection. It may be accepted
+  only after an exact-head build and visible Diagnostic-shortcut foreground test retain control-like
+  performance, correct visuals, controller input, 48 kHz stereo audio, screenshots, clean exit, and
+  GPU restoration. No FPS-improvement claim is attached to a no-regression maintenance sync.
+- The main Deck shortcut and preserved RPCS3/inFAMOUS 1 setup remain untouched.
+
 ### Steam Deck CPU topology
 
 - Live thread sampling showed `Game:Main` and `shadPS4:GpuComm` were frequently scheduled on CPUs 1
