@@ -22,6 +22,7 @@ class VerifyDeckCmakeCacheTests(unittest.TestCase):
                 check=False,
                 capture_output=True,
                 text=True,
+                timeout=10,
             )
 
     def test_accepts_exact_c_and_cxx_flags(self) -> None:
