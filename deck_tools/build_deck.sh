@@ -17,5 +17,14 @@ fi
   org.freedesktop.Sdk//25.08 -c \
   "cmake -S '${repo_dir}' -B '${build_dir}' -GNinja \
     -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-    -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ && \
-   cmake --build '${build_dir}' --parallel '${build_jobs}'"
+    -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+    -DCMAKE_C_FLAGS_RELWITHDEBINFO='-O2 -g -DNDEBUG' \
+    -DCMAKE_CXX_FLAGS_RELWITHDEBINFO='-O2 -g -DNDEBUG'"
+
+"${repo_dir}/deck_tools/verify_deck_cmake_cache.sh" "${build_dir}/CMakeCache.txt"
+
+"${priority[@]}" flatpak --user run --share=network --command=sh --filesystem=/home/deck \
+  --env=PATH=/usr/lib/sdk/llvm20/bin:/usr/bin \
+  --env=CC=clang --env=CXX=clang++ \
+  org.freedesktop.Sdk//25.08 -c \
+  "cmake --build '${build_dir}' --parallel '${build_jobs}'"
