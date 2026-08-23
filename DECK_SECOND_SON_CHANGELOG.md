@@ -657,8 +657,10 @@ session.
   Delsin, complete geometry and text, controller slot 0, and the main 48 kHz stereo output. Its
   final 600 samples measured 9.985 mean / 10.000 median FPS and 100.747 mean / 100.003 median frame
   time, compared with 7.483 mean / 1.999 median FPS and 458.120 mean / 500.209 median frame time for
-  the malformed unoptimized build. This proves recovery from the build defect; it does not prove
-  that the tested upstream source changes improve performance.
+  the malformed unoptimized build. The two binaries use different source revisions, so this proves
+  a return to the expected optimized performance class and invalidates the old source comparison;
+  it does not isolate the flag-only FPS delta or prove that the tested upstream source changes
+  improve performance.
 - The long run saved clean and HUD screenshots. Its first teardown used an X11 window-destroy
   command, which intentionally removed the Vulkan surface and produced `ErrorSurfaceLostKHR` with
   exit 133. This is retained as a teardown-method failure, not classified as a game or emulator
