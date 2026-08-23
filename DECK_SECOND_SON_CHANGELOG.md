@@ -1,3 +1,8 @@
+<!--
+SPDX-FileCopyrightText: 2026 shadPS4 Emulator Project
+SPDX-License-Identifier: GPL-2.0-or-later
+-->
+
 # Steam Deck / inFAMOUS Second Son engineering log
 
 This is the living record for the local Steam Deck-focused shadPS4 fork. An item is not called an
@@ -628,6 +633,46 @@ session.
   -0.019% and median frame time by +0.019%; mean FPS changed -0.675%. This accepts the attribution
   tool, not a performance change. The next gate is a sleep-queue-only bounded wait strategy, not a
   global SpinLock replacement.
+
+### Fail-closed optimized Deck builds — 2026-08-23, 3:20 AM CDT
+
+- Issues 89, 91, and 93 and PRs 90, 92, and 94 originally treated three roughly 2-FPS foreground
+  binaries as evidence of upstream source regressions. A later cache audit proved that all three
+  candidates had empty `CMAKE_C_FLAGS_RELWITHDEBINFO` and
+  `CMAKE_CXX_FLAGS_RELWITHDEBINFO` entries even though the build type still said
+  `RelWithDebInfo`. Their source-attribution verdicts are invalid and have been corrected in the
+  linked GitHub records. PR 94 was closed without merge; no upstream source regression is claimed
+  from those runs.
+- Issue 95 / PR 96 makes the normal Deck build command explicitly configure
+  `-O2 -g -DNDEBUG` for both C and C++, then validates the generated cache before compilation. The
+  reusable validator fails on missing, empty, or drifted flags and has four regression tests plus a
+  dedicated CI job. It repaired the contaminated cache in place; deleting the cache manually was
+  not required.
+- The exact PR-head binary at `838714e7dd368096903bd80a24f29968ac0733f3` is 373,149,056 bytes
+  with SHA-256 `60ebcb9528e8208f36522ac47d847adcf1206a761d6812f9eca97b4e779fb37b`.
+  It contains the matching revision string, debug information, and the expected optimized binary
+  shape. The malformed comparison binary was roughly 133 MB; this size difference is supporting
+  build-identity evidence, not a performance metric by itself.
+- Foreground diagnostic run `20260823-031044-fork` reached correctly lit cannery gameplay with
+  Delsin, complete geometry and text, controller slot 0, and the main 48 kHz stereo output. Its
+  final 600 samples measured 9.985 mean / 10.000 median FPS and 100.747 mean / 100.003 median frame
+  time, compared with 7.483 mean / 1.999 median FPS and 458.120 mean / 500.209 median frame time for
+  the malformed unoptimized build. The two binaries use different source revisions, so this proves
+  a return to the expected optimized performance class and invalidates the old source comparison;
+  it does not isolate the flag-only FPS delta or prove that the tested upstream source changes
+  improve performance.
+- The long run saved clean and HUD screenshots. Its first teardown used an X11 window-destroy
+  command, which intentionally removed the Vulkan surface and produced `ErrorSurfaceLostKHR` with
+  exit 133. This is retained as a teardown-method failure, not classified as a game or emulator
+  runtime crash.
+- Foreground confirmation run `20260823-031543-fork` repeated correct rendering, controller, and
+  48 kHz stereo evidence, then used shadPS4's configured `Ctrl+Shift+End` quit hotkey and confirmed
+  the dialog with Enter. It dumped the cache and exited 0. GPU policy was restored to `auto`, and
+  no emulator process remained after the run.
+- The preserved main Steam shortcut and its known-good 374,620,432-byte binary were not changed
+  for this diagnostic. The accepted result is a permanent build-integrity guard and a corrected
+  historical record, not a new FPS optimization or a claim of real-time playability; the measured
+  cannery scene remains about 10 FPS.
 
 ## Runtime results
 
