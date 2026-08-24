@@ -42,7 +42,7 @@ void SetSpinLockStatsEnabled(bool enabled);
  */
 class SpinLock {
 public:
-    explicit SpinLock(SpinLockClass lock_class_ = SpinLockClass::Generic)
+    explicit constexpr SpinLock(SpinLockClass lock_class_ = SpinLockClass::Generic)
         : lock_class{lock_class_} {}
 
     SpinLock(const SpinLock&) = delete;
@@ -64,7 +64,7 @@ private:
 template <SpinLockClass LockClass>
 class TaggedSpinLock final : public SpinLock {
 public:
-    TaggedSpinLock() : SpinLock{LockClass} {}
+    constexpr TaggedSpinLock() : SpinLock{LockClass} {}
 };
 
 } // namespace Common
