@@ -17,8 +17,8 @@
 #include <functional>
 #include <future>
 #include <mutex>
-#include <queue>
 #include <system_error>
+#include <queue>
 
 namespace {
 
