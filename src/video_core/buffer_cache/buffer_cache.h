@@ -293,10 +293,10 @@ private:
         VAddr fault_pc{};
         VAddr page_address{};
         Common::FaultContext last_context{};
-        u64 min_rdx{};
-        u64 max_rdx{};
-        u64 min_rcx{};
-        u64 max_rcx{};
+        VAddr min_rdx{};
+        VAddr max_rdx{};
+        VAddr min_rcx{};
+        VAddr max_rcx{};
         u64 last_request{};
         u64 interval_requests{};
         u64 interval_writes{};
