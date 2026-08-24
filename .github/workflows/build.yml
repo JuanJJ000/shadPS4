@@ -38,6 +38,8 @@ jobs:
       run: python3 -B -m unittest deck_tools/test_second_son_xpps_extract.py
     - name: Validate the Second Son XPPS chunk classifier
       run: python3 -B -m unittest deck_tools/test_second_son_xpps_chunks.py
+    - name: Validate the Second Son XPPS DIC target classifier
+      run: python3 -B -m unittest deck_tools/test_second_son_xpps_targets.py
     - name: Validate the Second Son 01.00 patch guard
       run: python3 -B -m unittest deck_tools/test_second_son_v100_patch_guard.py
 
