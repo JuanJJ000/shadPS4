@@ -100,8 +100,7 @@ BufferCache::BufferCache(const Vulkan::Instance& instance_, Vulkan::Scheduler& s
         }
     }
     const auto valid_work_budget = [](u64 value) {
-        return value == 0 ||
-               (value >= 32 && value <= 4096 && (value & (value - 1)) == 0);
+        return value == 0 || (value >= 32 && value <= 4096 && (value & (value - 1)) == 0);
     };
     const u64 configured_work_budget = EmulatorSettings.GetReadbackWorkSubmitBudget();
     if (valid_work_budget(configured_work_budget)) {
