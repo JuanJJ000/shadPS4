@@ -703,8 +703,8 @@ void Instance::CollectImageFormatInfo() {
                                                         vk::ImageUsageFlagBits::eSampled;
     constexpr vk::ImageCreateFlags compressed_1d_flags =
         vk::ImageCreateFlagBits::eMutableFormat | vk::ImageCreateFlagBits::eExtendedUsage;
-    supports_compressed_1d_images = std::ranges::all_of(
-        LiverpoolToVK::SurfaceFormats(), [this](const auto& surface_format) {
+    supports_compressed_1d_images =
+        std::ranges::all_of(LiverpoolToVK::SurfaceFormats(), [this](const auto& surface_format) {
             if (!AmdGpu::IsBlockCoded(surface_format.data_format)) {
                 return true;
             }
