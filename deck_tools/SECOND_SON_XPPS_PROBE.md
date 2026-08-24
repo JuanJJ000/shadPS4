@@ -1,3 +1,6 @@
+<!-- SPDX-FileCopyrightText: 2026 shadPS4 Project -->
+<!-- SPDX-License-Identifier: GPL-2.0-or-later -->
+
 # Second Son XPPS structure probe
 
 ## Blocked question
