@@ -98,6 +98,7 @@ public:
     void UpdateGyro(const float gyro[3]);
     void UpdateAcceleration(const float acceleration[3]);
     void SetMotionOverride(s8 mode);
+    void StartSprayAssist();
     void PollState();
     void ResetOrientation();
     void SetLightBarRGB(u8 const r, u8 const g, u8 const b);
@@ -113,6 +114,8 @@ public:
 
 private:
     // m_state_mutex must be held by the caller.
+    void ApplyMotionInputLocked(u64 timestamp);
+    void FinishSprayAssistLocked(u64 timestamp);
     void PushStateLocked(u64 timestamp = 0);
     void UpdateOrientationLocked(u64 timestamp);
 
@@ -122,6 +125,11 @@ private:
     Colour colour;
     std::optional<Colour> override_colour{};
     s8 motion_override{};
+    float raw_gyro_buf[3] = {0.0f, 0.0f, 0.0f};
+    float raw_accel_buf[3] = {0.0f, 9.81f, 0.0f};
+    int raw_trigger_right{};
+    u64 spray_assist_start{};
+    bool spray_assist_active{};
 
     State m_state;
 

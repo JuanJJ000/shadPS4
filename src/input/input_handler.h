@@ -53,6 +53,7 @@
 #define CONTROLLER_SIDEWAYS_LEFT 0x00800000
 #define CONTROLLER_SIDEWAYS_RIGHT 0x01000000
 #define CONTROLLER_SHAKE 0x02000000
+#define CONTROLLER_SPRAY_ASSIST 0x04000000
 
 #define HOTKEY_FULLSCREEN 0xf0000001
 #define HOTKEY_PAUSE 0xf0000002
@@ -157,6 +158,7 @@ const std::map<std::string, u32> string_to_cbutton_map = {
     {"controller_sideways_left", CONTROLLER_SIDEWAYS_LEFT},
     {"controller_sideways_right", CONTROLLER_SIDEWAYS_RIGHT},
     {"controller_shake", CONTROLLER_SHAKE},
+    {"controller_spray_assist", CONTROLLER_SPRAY_ASSIST},
     {"qam", SDL_GAMEPAD_BUTTON_MISC1},
     {"r4", SDL_GAMEPAD_BUTTON_RIGHT_PADDLE1},
     {"l4", SDL_GAMEPAD_BUTTON_LEFT_PADDLE1},
@@ -546,7 +548,7 @@ public:
 
 class ControllerAllOutputs {
 public:
-    static constexpr u64 output_count = 46;
+    static constexpr u64 output_count = 47;
     std::array<ControllerOutput, output_count> data = {
         // Important: these have to be the first, or else they will update in the wrong order
         ControllerOutput(LEFTJOYSTICK_HALFMODE),
@@ -556,6 +558,7 @@ public:
         ControllerOutput(CONTROLLER_SIDEWAYS_LEFT),
         ControllerOutput(CONTROLLER_SIDEWAYS_RIGHT),
         ControllerOutput(CONTROLLER_SHAKE),
+        ControllerOutput(CONTROLLER_SPRAY_ASSIST),
 
         // Button mappings
         ControllerOutput(SDL_GAMEPAD_BUTTON_NORTH),           // Triangle

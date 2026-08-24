@@ -23,6 +23,11 @@ using Libraries::Pad::OrbisPadButtonDataOffset;
 
 namespace {
 
+constexpr u64 SpraySidewaysEnd = 2'000'000;
+constexpr u64 SprayShakeEnd = 5'000'000;
+constexpr u64 SpraySettleEnd = 5'750'000;
+constexpr u64 SprayPaintEnd = 45'750'000;
+
 void CalculateOrientation(const Libraries::Pad::OrbisFVector3& angular_velocity, float delta_time,
                           const Libraries::Pad::OrbisFQuaternion& last_orientation,
                           Libraries::Pad::OrbisFQuaternion& orientation) {
@@ -103,59 +108,30 @@ void GameController::Button(OrbisPadButtonDataOffset button, bool is_pressed) {
 void GameController::Axis(Input::Axis axis, int value, bool smooth) {
     std::lock_guard lock{m_state_mutex};
     const u64 timestamp = Libraries::Kernel::sceKernelGetProcessTime();
-    m_state.OnAxis(axis, value, timestamp, smooth);
     if (axis == Input::Axis::TriggerRight) {
-        if (motion_override == 3 && value > 0) {
-            motion_override = 4;
-        } else if (motion_override == 4 && value == 0) {
-            motion_override = 0;
+        raw_trigger_right = value;
+        if (!spray_assist_active) {
+            m_state.OnAxis(axis, value, timestamp, smooth);
+            if (motion_override == 3 && value > 0) {
+                motion_override = 4;
+            } else if (motion_override == 4 && value == 0) {
+                motion_override = 0;
+            }
         }
+    } else {
+        m_state.OnAxis(axis, value, timestamp, smooth);
     }
     PushStateLocked(timestamp);
 }
 
 void GameController::UpdateGyro(const float gyro[3]) {
     std::lock_guard lock{m_state_mutex};
-    if (motion_override == 2) {
-        const float direction =
-            ((Libraries::Kernel::sceKernelGetProcessTime() / 100000) & 1) != 0 ? 1.0f : -1.0f;
-        const float shake_gyro[3] = {0.0f, 0.0f, direction * 3.0f};
-        std::memcpy(gyro_buf, shake_gyro, sizeof(gyro_buf));
-    } else if (motion_override == 3 || motion_override == 4) {
-        const float stick_x =
-            (128.0f - m_state.axes[static_cast<int>(Input::Axis::RightX)]) / 127.0f;
-        const float stick_y =
-            (128.0f - m_state.axes[static_cast<int>(Input::Axis::RightY)]) / 127.0f;
-        const float time = Libraries::Kernel::sceKernelGetProcessTime() / 1'000'000.0f;
-        const bool auto_sweep =
-            motion_override == 4 && std::abs(stick_x) < 0.05f && std::abs(stick_y) < 0.05f;
-        const float aim_gyro[3] = {
-            gyro[0] + stick_y * 0.6f + (auto_sweep ? std::sin(time * 1.4f) * 0.45f : 0.0f),
-            gyro[1] + stick_x * 0.18f + (auto_sweep ? std::sin(time * 0.8f) * 0.08f : 0.0f),
-            gyro[2] + stick_y * 0.6f + (auto_sweep ? std::cos(time * 1.1f) * 0.45f : 0.0f),
-        };
-        std::memcpy(gyro_buf, aim_gyro, sizeof(gyro_buf));
-    } else {
-        std::memcpy(gyro_buf, gyro, sizeof(gyro_buf));
-    }
+    std::memcpy(raw_gyro_buf, gyro, sizeof(raw_gyro_buf));
 }
 
 void GameController::UpdateAcceleration(const float acceleration[3]) {
     std::lock_guard lock{m_state_mutex};
-    if (motion_override == -1 || motion_override == 1) {
-        const float sideways_accel[3] = {motion_override * 9.81f, 0.0f, 0.0f};
-        std::memcpy(accel_buf, sideways_accel, sizeof(accel_buf));
-    } else if (motion_override == 2) {
-        const float direction =
-            ((Libraries::Kernel::sceKernelGetProcessTime() / 100000) & 1) != 0 ? 1.0f : -1.0f;
-        const float shake_accel[3] = {-9.81f + direction * 30.0f, 0.0f, 0.0f};
-        std::memcpy(accel_buf, shake_accel, sizeof(accel_buf));
-    } else if (motion_override == 3 || motion_override == 4) {
-        const float sideways_accel[3] = {-9.81f, 0.0f, 0.0f};
-        std::memcpy(accel_buf, sideways_accel, sizeof(accel_buf));
-    } else {
-        std::memcpy(accel_buf, acceleration, sizeof(accel_buf));
-    }
+    std::memcpy(raw_accel_buf, acceleration, sizeof(raw_accel_buf));
 }
 
 void GameController::SetMotionOverride(s8 mode) {
@@ -172,9 +148,24 @@ void GameController::SetMotionOverride(s8 mode) {
     }
 }
 
+void GameController::StartSprayAssist() {
+    std::lock_guard lock{m_state_mutex};
+    const u64 timestamp = Libraries::Kernel::sceKernelGetProcessTime();
+    spray_assist_start = timestamp;
+    spray_assist_active = true;
+    motion_override = 0;
+    m_state.orientation = {0.0f, 0.0f, 0.0f, 1.0f};
+    m_last_orientation_update = 0;
+    ApplyMotionInputLocked(timestamp);
+    PushStateLocked(timestamp);
+    LOG_INFO(Input, "Controller spray assist started");
+}
+
 void GameController::PollState() {
     std::lock_guard lock{m_state_mutex};
-    PushStateLocked();
+    const u64 timestamp = Libraries::Kernel::sceKernelGetProcessTime();
+    ApplyMotionInputLocked(timestamp);
+    PushStateLocked(timestamp);
 }
 
 void GameController::ResetOrientation() {
@@ -233,11 +224,99 @@ void GameController::DisconnectController() {
     std::fill(gyro_buf, gyro_buf + 3, 0.0f);
     std::fill(accel_buf, accel_buf + 3, 0.0f);
     accel_buf[1] = 9.81f;
+    std::fill(raw_gyro_buf, raw_gyro_buf + 3, 0.0f);
+    std::fill(raw_accel_buf, raw_accel_buf + 3, 0.0f);
+    raw_accel_buf[1] = 9.81f;
+    raw_trigger_right = 0;
+    spray_assist_start = 0;
+    spray_assist_active = false;
+    motion_override = 0;
     m_next_touch_id = 1;
     m_touch_down_timestamp = 0;
     m_state.connected = false;
     m_last_orientation_update = 0;
     PushStateLocked();
+}
+
+void GameController::ApplyMotionInputLocked(u64 timestamp) {
+    if (spray_assist_active) {
+        const u64 elapsed = timestamp >= spray_assist_start ? timestamp - spray_assist_start : 0;
+        const bool painting = elapsed >= SpraySettleEnd && elapsed < SprayPaintEnd;
+        m_state.OnAxis(Input::Axis::TriggerRight, painting ? 255 : 0, timestamp, false);
+
+        if (elapsed < SpraySidewaysEnd) {
+            constexpr float sideways_accel[3] = {-9.81f, 0.0f, 0.0f};
+            constexpr float still_gyro[3] = {0.0f, 0.0f, 0.0f};
+            std::memcpy(accel_buf, sideways_accel, sizeof(accel_buf));
+            std::memcpy(gyro_buf, still_gyro, sizeof(gyro_buf));
+        } else if (elapsed < SprayShakeEnd) {
+            const float direction = ((elapsed / 100'000) & 1) != 0 ? 1.0f : -1.0f;
+            const float shake_accel[3] = {-9.81f + direction * 30.0f, 0.0f, 0.0f};
+            const float shake_gyro[3] = {0.0f, 0.0f, direction * 3.0f};
+            std::memcpy(accel_buf, shake_accel, sizeof(accel_buf));
+            std::memcpy(gyro_buf, shake_gyro, sizeof(gyro_buf));
+        } else if (elapsed < SpraySettleEnd) {
+            constexpr float sideways_accel[3] = {-9.81f, 0.0f, 0.0f};
+            constexpr float still_gyro[3] = {0.0f, 0.0f, 0.0f};
+            std::memcpy(accel_buf, sideways_accel, sizeof(accel_buf));
+            std::memcpy(gyro_buf, still_gyro, sizeof(gyro_buf));
+        } else if (elapsed < SprayPaintEnd) {
+            constexpr float sideways_accel[3] = {-9.81f, 0.0f, 0.0f};
+            const float paint_time = (elapsed - SpraySettleEnd) / 1'000'000.0f;
+            const float scan_direction =
+                (static_cast<u64>(paint_time / 0.7f) & 1) != 0 ? 1.0f : -1.0f;
+            const float paint_gyro[3] = {
+                scan_direction * 0.9f,
+                std::sin(paint_time * 0.43f) * 0.22f,
+                std::sin(paint_time * 0.61f) * 0.65f,
+            };
+            std::memcpy(accel_buf, sideways_accel, sizeof(accel_buf));
+            std::memcpy(gyro_buf, paint_gyro, sizeof(gyro_buf));
+        } else {
+            FinishSprayAssistLocked(timestamp);
+        }
+        return;
+    }
+
+    std::memcpy(gyro_buf, raw_gyro_buf, sizeof(gyro_buf));
+    std::memcpy(accel_buf, raw_accel_buf, sizeof(accel_buf));
+    if (motion_override == 2) {
+        const float direction = ((timestamp / 100'000) & 1) != 0 ? 1.0f : -1.0f;
+        const float shake_gyro[3] = {0.0f, 0.0f, direction * 3.0f};
+        const float shake_accel[3] = {-9.81f + direction * 30.0f, 0.0f, 0.0f};
+        std::memcpy(gyro_buf, shake_gyro, sizeof(gyro_buf));
+        std::memcpy(accel_buf, shake_accel, sizeof(accel_buf));
+    } else if (motion_override == -1 || motion_override == 1) {
+        const float sideways_accel[3] = {motion_override * 9.81f, 0.0f, 0.0f};
+        std::memcpy(accel_buf, sideways_accel, sizeof(accel_buf));
+    } else if (motion_override == 3 || motion_override == 4) {
+        const float stick_x =
+            (128.0f - m_state.axes[static_cast<int>(Input::Axis::RightX)]) / 127.0f;
+        const float stick_y =
+            (128.0f - m_state.axes[static_cast<int>(Input::Axis::RightY)]) / 127.0f;
+        const float time = timestamp / 1'000'000.0f;
+        const bool auto_sweep =
+            motion_override == 4 && std::abs(stick_x) < 0.05f && std::abs(stick_y) < 0.05f;
+        const float aim_gyro[3] = {
+            raw_gyro_buf[0] + stick_y * 0.6f + (auto_sweep ? std::sin(time * 1.4f) * 0.45f : 0.0f),
+            raw_gyro_buf[1] + stick_x * 0.18f + (auto_sweep ? std::sin(time * 0.8f) * 0.08f : 0.0f),
+            raw_gyro_buf[2] + stick_y * 0.6f + (auto_sweep ? std::cos(time * 1.1f) * 0.45f : 0.0f),
+        };
+        constexpr float sideways_accel[3] = {-9.81f, 0.0f, 0.0f};
+        std::memcpy(gyro_buf, aim_gyro, sizeof(gyro_buf));
+        std::memcpy(accel_buf, sideways_accel, sizeof(accel_buf));
+    }
+}
+
+void GameController::FinishSprayAssistLocked(u64 timestamp) {
+    spray_assist_active = false;
+    spray_assist_start = 0;
+    m_state.OnAxis(Input::Axis::TriggerRight, raw_trigger_right, timestamp, false);
+    std::memcpy(gyro_buf, raw_gyro_buf, sizeof(gyro_buf));
+    std::memcpy(accel_buf, raw_accel_buf, sizeof(accel_buf));
+    m_state.orientation = {0.0f, 0.0f, 0.0f, 1.0f};
+    m_last_orientation_update = timestamp;
+    LOG_INFO(Input, "Controller spray assist completed");
 }
 
 void GameController::UpdateOrientationLocked(u64 timestamp) {

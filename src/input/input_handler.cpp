@@ -824,6 +824,11 @@ void ControllerOutput::FinalizeUpdate(u8 gamepad_index) {
         case CONTROLLER_SHAKE:
             controller->SetMotionOverride(new_button_state ? 2 : 0);
             break;
+        case CONTROLLER_SPRAY_ASSIST:
+            if (new_button_state) {
+                controller->StartSprayAssist();
+            }
+            break;
         default: // is a normal key (hopefully)
             controller->Button(SDLGamepadToOrbisButton(button), new_button_state);
             break;
