@@ -1304,8 +1304,7 @@ std::pair<Buffer*, u32> BufferCache::ObtainBuffer(VAddr device_addr, u32 size, b
         }
         if (!IsBufferInvalid(existing_id)) {
             Buffer& existing = slot_buffers[existing_id];
-            if (existing.IsInBounds(device_addr, size) &&
-                !IsRegionCpuModified(device_addr, size)) {
+            if (existing.IsInBounds(device_addr, size) && !IsRegionCpuModified(device_addr, size)) {
                 TouchBuffer(existing);
                 return {&existing, existing.Offset(device_addr)};
             }
