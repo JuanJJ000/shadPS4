@@ -36,6 +36,8 @@ jobs:
       run: python3 -B -m unittest deck_tools/test_second_son_xpps_probe.py
     - name: Validate the bounded Second Son XPPS extractor
       run: python3 -B -m unittest deck_tools/test_second_son_xpps_extract.py
+    - name: Validate the Second Son XPPS chunk classifier
+      run: python3 -B -m unittest deck_tools/test_second_son_xpps_chunks.py
 
   reuse:
     runs-on: ubuntu-24.04
