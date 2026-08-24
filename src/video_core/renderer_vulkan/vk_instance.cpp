@@ -698,6 +698,29 @@ void Instance::CollectImageFormatInfo() {
     LOG_INFO(Render_Vulkan, "Block Texel View support: {}",
              supports_block_texel_view ? "Yes" : "No");
 
+    constexpr vk::ImageUsageFlags compressed_1d_usage = vk::ImageUsageFlagBits::eTransferSrc |
+                                                        vk::ImageUsageFlagBits::eTransferDst |
+                                                        vk::ImageUsageFlagBits::eSampled;
+    constexpr vk::ImageCreateFlags compressed_1d_flags =
+        vk::ImageCreateFlagBits::eMutableFormat | vk::ImageCreateFlagBits::eExtendedUsage;
+    supports_compressed_1d_images =
+        std::ranges::all_of(LiverpoolToVK::SurfaceFormats(), [this](const auto& surface_format) {
+            if (!AmdGpu::IsBlockCoded(surface_format.data_format)) {
+                return true;
+            }
+            const vk::PhysicalDeviceImageFormatInfo2 format_info{
+                .format = surface_format.vk_format,
+                .type = vk::ImageType::e1D,
+                .tiling = vk::ImageTiling::eOptimal,
+                .usage = compressed_1d_usage,
+                .flags = compressed_1d_flags,
+            };
+            return physical_device.getImageFormatProperties2(format_info).result ==
+                   vk::Result::eSuccess;
+        });
+    LOG_INFO(Render_Vulkan, "Compressed 1D image support: {}",
+             supports_compressed_1d_images ? "Yes" : "No; using native-format 2D fallback");
+
     // Check and log format support details.
     for (const auto& format : LiverpoolToVK::SurfaceFormats()) {
         if (!IsFormatSupported(format.vk_format, format.flags)) {

@@ -205,8 +205,12 @@ Image::Image(const Vulkan::Instance& instance_, Vulkan::Scheduler& scheduler_,
         }
     }
     if (image_format_properties.result == vk::Result::eErrorFormatNotSupported) {
-        LOG_ERROR(Render_Vulkan, "image format {} type {} is not supported (flags {}, usage {})",
-                  vk::to_string(supported_format), vk::to_string(format_info.type),
+        LOG_ERROR(Render_Vulkan,
+                  "image format {} type {} is not supported (extent {}x{}x{}, levels {}, layers "
+                  "{}, guest type {}, address {:#x}, size {:#x}, flags {}, usage {})",
+                  vk::to_string(supported_format), vk::to_string(format_info.type), info.size.width,
+                  info.size.height, info.size.depth, info.resources.levels, info.resources.layers,
+                  AmdGpu::NameOf(info.type), info.guest_address, info.guest_size,
                   vk::to_string(format_info.flags), vk::to_string(format_info.usage));
     }
     supported_samples = image_format_properties.result == vk::Result::eSuccess

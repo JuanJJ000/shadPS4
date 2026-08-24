@@ -778,10 +778,13 @@ void Rasterizer::BindTextures(const Shader::Info& stage, Shader::Backend::Bindin
 
         const Shader::MipStorageFallbackMode mip_fallback_mode = image_desc.mip_fallback_mode;
         const u32 num_bindings = image_desc.NumBindings(stage);
+        const bool needs_1d_compressed_fallback = Shader::NeedsCompressed1dFallback(
+            !instance.SupportsCompressed1dImages(), data_fmt, tsharp.GetBaseType());
 
         for (auto i = 0; i < num_bindings; i++) {
             auto& [image_id, desc] = image_bindings.emplace_back(
-                std::piecewise_construct, std::tuple{}, std::tuple{tsharp, image_desc});
+                std::piecewise_construct, std::tuple{},
+                std::tuple{tsharp, image_desc, needs_1d_compressed_fallback});
 
             if (mip_fallback_mode == Shader::MipStorageFallbackMode::ConstantIndex) {
                 ASSERT(num_bindings == 1);

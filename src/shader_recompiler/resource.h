@@ -63,6 +63,38 @@ using BufferResourceList = boost::container::static_vector<BufferResource, NUM_B
 
 enum class MipStorageFallbackMode : u32 { None, DynamicIndex, ConstantIndex };
 
+constexpr AmdGpu::ImageType Promote1dViewTo2d(const AmdGpu::ImageType type) noexcept {
+    switch (type) {
+    case AmdGpu::ImageType::Color1D:
+        return AmdGpu::ImageType::Color2D;
+    case AmdGpu::ImageType::Color1DArray:
+        return AmdGpu::ImageType::Color2DArray;
+    default:
+        return type;
+    }
+}
+
+static_assert(Promote1dViewTo2d(AmdGpu::ImageType::Color1D) == AmdGpu::ImageType::Color2D);
+static_assert(Promote1dViewTo2d(AmdGpu::ImageType::Color1DArray) ==
+              AmdGpu::ImageType::Color2DArray);
+static_assert(Promote1dViewTo2d(AmdGpu::ImageType::Color3D) == AmdGpu::ImageType::Color3D);
+
+constexpr bool NeedsCompressed1dFallback(const bool fallback_required,
+                                         const AmdGpu::DataFormat data_format,
+                                         const AmdGpu::ImageType base_type) noexcept {
+    return fallback_required && AmdGpu::IsBlockCoded(data_format) &&
+           base_type == AmdGpu::ImageType::Color1D;
+}
+
+static_assert(NeedsCompressed1dFallback(true, AmdGpu::DataFormat::FormatBc1,
+                                        AmdGpu::ImageType::Color1D));
+static_assert(!NeedsCompressed1dFallback(false, AmdGpu::DataFormat::FormatBc1,
+                                         AmdGpu::ImageType::Color1D));
+static_assert(!NeedsCompressed1dFallback(true, AmdGpu::DataFormat::Format8,
+                                         AmdGpu::ImageType::Color1D));
+static_assert(!NeedsCompressed1dFallback(true, AmdGpu::DataFormat::FormatBc1,
+                                         AmdGpu::ImageType::Color2D));
+
 struct ImageResource {
     u32 sharp_idx;
     bool is_depth{};
@@ -70,6 +102,7 @@ struct ImageResource {
     bool is_array{};
     bool is_written{};
     bool is_r128{};
+    bool needs_1d_compressed_fallback{};
     MipStorageFallbackMode mip_fallback_mode{};
     u32 constant_mip_index{};
 
@@ -102,6 +135,11 @@ struct ImageResource {
         return (mip_fallback_mode == MipStorageFallbackMode::DynamicIndex)
                    ? (tsharp.last_level - tsharp.base_level + 1)
                    : 1;
+    }
+
+    AmdGpu::ImageType GetHostViewType(const auto& info) const noexcept {
+        const auto guest_type = GetSharp(info).GetViewType(is_array);
+        return needs_1d_compressed_fallback ? Promote1dViewTo2d(guest_type) : guest_type;
     }
 };
 using ImageResourceList = boost::container::static_vector<ImageResource, NUM_IMAGES>;

@@ -171,7 +171,8 @@ Id EmitImageGatherDref(EmitContext& ctx, IR::Inst* inst, u32 handle, Id coords,
 Id EmitImageQueryDimensions(EmitContext& ctx, IR::Inst* inst, u32 handle, Id lod, bool has_mips) {
     const auto& texture = ctx.images[handle & 0xFFFF];
     const Id image = ctx.OpLoad(texture.image_type, texture.id);
-    const auto sharp = ctx.info.images[handle & 0xFFFF].GetSharp(ctx.info);
+    const auto& image_desc = ctx.info.images[handle & 0xFFFF];
+    const auto sharp = image_desc.GetSharp(ctx.info);
     const Id zero = ctx.u32_zero_value;
     const auto mips{[&] { return has_mips ? ctx.OpImageQueryLevels(ctx.U32[1], image) : zero; }};
     const bool uses_lod{texture.view_type != AmdGpu::ImageType::Color2DMsaa && !texture.is_storage};
@@ -179,6 +180,14 @@ Id EmitImageQueryDimensions(EmitContext& ctx, IR::Inst* inst, u32 handle, Id lod
         return uses_lod ? ctx.OpImageQuerySizeLod(type, image, lod)
                         : ctx.OpImageQuerySize(type, image);
     }};
+    if (image_desc.needs_1d_compressed_fallback) {
+        const auto guest_type = sharp.GetViewType(image_desc.is_array);
+        const bool is_array = guest_type == AmdGpu::ImageType::Color1DArray;
+        const Id dimensions = query(is_array ? ctx.U32[3] : ctx.U32[2]);
+        const Id width = ctx.OpCompositeExtract(ctx.U32[1], dimensions, 0);
+        const Id layers = is_array ? ctx.OpCompositeExtract(ctx.U32[1], dimensions, 2) : zero;
+        return ctx.OpCompositeConstruct(ctx.U32[4], width, layers, zero, mips());
+    }
     switch (texture.view_type) {
     case AmdGpu::ImageType::Color1D:
         return ctx.OpCompositeConstruct(ctx.U32[4], query(ctx.U32[1]), zero, zero, mips());

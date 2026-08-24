@@ -61,8 +61,10 @@ public:
         BindingType type{BindingType::Texture};
 
         ImageDesc() = default;
-        ImageDesc(const AmdGpu::Image& image, const Shader::ImageResource& desc)
-            : info{image, desc}, view_info{image, desc},
+        ImageDesc(const AmdGpu::Image& image, const Shader::ImageResource& desc,
+                  bool needs_1d_compressed_fallback)
+            : info{image, desc, needs_1d_compressed_fallback},
+              view_info{image, desc, needs_1d_compressed_fallback},
               type{desc.is_written ? BindingType::Storage : BindingType::Texture} {}
         ImageDesc(const AmdGpu::ColorBuffer& buffer, AmdGpu::CbDbExtent hint)
             : info{buffer, hint}, view_info{buffer}, type{BindingType::RenderTarget} {}
