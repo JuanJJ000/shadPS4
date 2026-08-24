@@ -268,7 +268,9 @@ if [[ -n "${patch_xml}" ]]; then
 fi
 
 if [[ -f "${repo_dir}/deck_tools/summarize_mangohud.py" ]]; then
-  python3 "${repo_dir}/deck_tools/summarize_mangohud.py" "${run_dir}" >"${run_dir}/evidence/performance-summary.txt" 2>&1 || true
+  python3 "${repo_dir}/deck_tools/summarize_mangohud.py" "${run_dir}" \
+    --phase startup=0:15 --phase post-load=15: --tail-seconds 10 --bin-seconds 5 \
+    >"${run_dir}/evidence/performance-summary.txt" 2>&1 || true
 fi
 
 if [[ "${pipeline_trace}" == "1" ]]; then

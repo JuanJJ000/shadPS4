@@ -572,6 +572,7 @@ collect_results() {
       -exec cp -t "${run_dir}/screenshots" -- {} + 2>/dev/null || true
   fi
   LD_PRELOAD="" python3 "${repo_dir}/deck_tools/summarize_mangohud.py" "${run_dir}" \
+    --phase startup=0:15 --phase post-load=15: --tail-seconds 10 --bin-seconds 5 \
     >"${run_dir}/performance-summary.txt" 2>&1 || true
   if [[ "${sleepq_stats}" == "1" ]]; then
     LD_PRELOAD="" python3 "${repo_dir}/deck_tools/summarize_sleepq.py" "${run_dir}" --tail 8 \
