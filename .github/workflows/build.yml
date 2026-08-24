@@ -52,6 +52,8 @@ jobs:
       run: python3 -B -m unittest deck_tools/test_second_son_xpps_dds_export.py
     - name: Validate the Second Son reversible DDS-to-XPPS overlay
       run: python3 -B -m unittest deck_tools/test_second_son_xpps_dds_overlay.py
+    - name: Validate the Second Son receipt-gated mod overlay
+      run: python3 -B -m unittest deck_tools/test_second_son_mod_overlay.py
     - name: Validate the Second Son 01.00 patch guard
       run: python3 -B -m unittest deck_tools/test_second_son_v100_patch_guard.py
 
