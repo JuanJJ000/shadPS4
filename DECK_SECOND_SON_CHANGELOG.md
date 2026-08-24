@@ -9,6 +9,30 @@ This is the living record for the local Steam Deck-focused shadPS4 fork. An item
 improvement until it has been measured on the user's own legally dumped game in a visible Gamescope
 session.
 
+## Bazzite fidelity ceiling milestone — 2026-08-24
+
+### RR — Really Readable rundown
+
+- **What happened — Proven:** draft PR #139 now creates exact 1440p, 4K, and 8K Vulkan
+  swapchains, reports host vblanks separately from guest flips, and captures both the pre-scale
+  game buffer and post-scale output without desktop focus. Bounded 8K/120 reached the exact output
+  mode while using at most 10.51 GB VRAM and 50% GPU load on the RTX 3090.
+- **What it means:** 4K/120 and 8K/120 output are technically viable stress modes on this host, but
+  they are not native 4K/8K or 120 FPS gameplay. Second Son explicitly registers a 1920×1080 game
+  buffer, and the loaded unattended scene settles near 18–20 unique guest flips/s at both 60 and
+  120 Hz.
+- **What improved — Inference:** FSR EASU plus maximum RCAS sharpening retained about 1.3–2.1%
+  more grayscale edge energy than the plain scaler across four static-heavy matched-scene crops at
+  the 2560×1440 display size. It is the current clarity candidate, not a substitute for a native
+  resolution patch.
+- **What happens next — Unknown:** locate and guard the title's real resolution/allocation path,
+  test the existing motion-blur candidate, attribute the approximately 20 FPS slow phase, fix
+  graceful Gamescope surface teardown, and complete interactive controller/QTE/audio/game-speed
+  validation before changing the normal Steam profile.
+
+The complete hash-bound matrix and Proven/Inference/Unknown boundaries are in
+`deck_tools/SECOND_SON_FIDELITY_REFRESH.md`.
+
 ## Bazzite desktop integration milestone — 2026-08-24
 
 ### RR — Really Readable rundown
