@@ -1294,6 +1294,22 @@ std::pair<Buffer*, u32> BufferCache::ObtainBuffer(VAddr device_addr, u32 size, b
                                                   bool is_texel_buffer, BufferId buffer_id) {
     // For read-only buffers use device local stream buffer to reduce renderpass breaks.
     if (!is_written && size <= CACHING_PAGESIZE && !IsRegionGpuModified(device_addr, size)) {
+        // Shader binding discovery can already have created a persistent buffer for this range.
+        // Reuse it while its CPU copy is current instead of repeatedly taking the guest-VMA lock
+        // and copying identical data into the stream ring. Dirty and uncached ranges retain the
+        // stream path so an upload cannot introduce a renderpass break here.
+        BufferId existing_id = buffer_id;
+        if (IsBufferInvalid(existing_id)) {
+            existing_id = page_table[device_addr >> CACHING_PAGEBITS].buffer_id;
+        }
+        if (!IsBufferInvalid(existing_id)) {
+            Buffer& existing = slot_buffers[existing_id];
+            if (existing.IsInBounds(device_addr, size) &&
+                !IsRegionCpuModified(device_addr, size)) {
+                TouchBuffer(existing);
+                return {&existing, existing.Offset(device_addr)};
+            }
+        }
         const u64 offset = stream_buffer.Copy(device_addr, size, instance.UniformMinAlignment());
         return {&stream_buffer, offset};
     }
