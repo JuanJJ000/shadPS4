@@ -29,6 +29,9 @@ cache, and optimized Linux binary SHA-256
 - The bounded 8K/60 FSR+RCAS run peaked at 10.38 GB VRAM, 46% GPU load, and 163 W. The bounded
   8K/120 run peaked at 10.51 GB VRAM, 50% GPU load, and 248 W. Both left the live Steam profile
   byte-for-byte unchanged.
+- The issue #140 IPC-stop launcher candidate completed a 35-second post-load Gamescope run with
+  both screenshot modes, status 0, a normal play-time/cache close, no Vulkan assertion, no retained
+  processes, and an unchanged live profile.
 - A matched-camera 8K/60 control with FSR and RCAS disabled had consistently lower grayscale edge
   energy after resizing to the host's 2560×1440 display. Across four static-heavy crops, the
   FSR+RCAS image measured about 1.3–2.1% higher. This is a directional sharpness measure, not a
@@ -68,8 +71,8 @@ Screenshot SHA-256 receipts:
   attribution. The high-output runs rule out simple RTX 3090 saturation.
 - Whether the guarded v1.00 motion-blur exposure patch improves moving-image clarity without
   artifacts remains unproven.
-- Every bounded Gamescope run ends with `ErrorSurfaceLostKHR` after the timeout removes the nested
-  surface. The capture is already complete and the live profile remains unchanged, but graceful
-  wrapper teardown needs a separate fix before clean-exit acceptance.
+- A normal user-requested in-game exit remains to be included in the interactive acceptance run.
+  The separate issue #140 timeout-order defect is fixed and locally proven in this branch, but is
+  not integrated until PR #139 lands.
 
 No 4K, 8K, or 120 Hz profile is promoted to the normal Steam launch by this receipt.

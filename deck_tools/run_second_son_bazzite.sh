@@ -253,6 +253,7 @@ EOF
   echo "videoout_stats_interval=${videoout_stats_interval}"
   echo "screenshot_after_seconds=${screenshot_after_seconds}"
   echo "screenshot_mode=${screenshot_mode}"
+  echo "bounded_shutdown=$([[ "${capture_seconds}" == "0" ]] && echo interactive || echo ipc-stop-with-15s-grace)"
   sha256sum "${profile_receipt}"
   if [[ -n "${patch_xml}" ]]; then
     echo "patch=${patch_xml}"
@@ -346,8 +347,26 @@ if [[ "${capture_seconds}" == "0" ]]; then
   env "${launch_env[@]}" "${launch[@]}" 2>&1 | tee "${run_dir}/console.log"
   exit_status="${PIPESTATUS[0]}"
 else
-  env "${launch_env[@]}" timeout --foreground --signal=TERM --kill-after=15s "${capture_seconds}s" "${launch[@]}" 2>&1 | tee "${run_dir}/console.log"
+  # Let shadPS4 close its window and presentation thread before Gamescope removes the nested
+  # surface. The outer timeout is only a fail-safe if IPC startup or graceful STOP fails.
+  launch_env+=("SHADPS4_ENABLE_IPC=true")
+  coproc SECOND_SON_IPC_STOPPER {
+    printf 'RUN\nSTART\n'
+    sleep "${capture_seconds}"
+    printf 'STOP\n'
+  }
+  ipc_stopper_pid="${SECOND_SON_IPC_STOPPER_PID}"
+  # Bash marks the original coprocess descriptors close-on-exec. Duplicate the reader onto a
+  # normal descriptor so the external timeout/Gamescope pipeline can inherit it as stdin.
+  exec {ipc_stopper_fd}<&"${SECOND_SON_IPC_STOPPER[0]}"
+  timeout_seconds=$((capture_seconds + 15))
+  env "${launch_env[@]}" timeout --foreground --signal=TERM --kill-after=15s \
+    "${timeout_seconds}s" "${launch[@]}" <&"${ipc_stopper_fd}" 2>&1 | \
+    tee "${run_dir}/console.log"
   exit_status="${PIPESTATUS[0]}"
+  exec {ipc_stopper_fd}<&-
+  kill "${ipc_stopper_pid}" 2>/dev/null || true
+  wait "${ipc_stopper_pid}" 2>/dev/null || true
 fi
 set -e
 

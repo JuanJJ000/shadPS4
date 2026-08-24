@@ -25,10 +25,14 @@ session.
   more grayscale edge energy than the plain scaler across four static-heavy matched-scene crops at
   the 2560×1440 display size. It is the current clarity candidate, not a substitute for a native
   resolution patch.
+- **Clean capture exit — Proven:** issue #140's bounded launcher candidate now asks shadPS4 to stop
+  through its stdin IPC before Gamescope removes the nested surface. A post-load run captured both
+  image modes, exited status 0, dumped the cache, avoided `ErrorSurfaceLostKHR`, left no processes,
+  and left the live Steam profile unchanged.
 - **What happens next — Unknown:** locate and guard the title's real resolution/allocation path,
   test the existing motion-blur candidate, attribute the approximately 20 FPS slow phase, fix
-  graceful Gamescope surface teardown, and complete interactive controller/QTE/audio/game-speed
-  validation before changing the normal Steam profile.
+  interactive user-exit behavior, and complete controller/QTE/audio/game-speed validation before
+  changing the normal Steam profile.
 
 The complete hash-bound matrix and Proven/Inference/Unknown boundaries are in
 `deck_tools/SECOND_SON_FIDELITY_REFRESH.md`.

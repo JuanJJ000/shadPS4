@@ -26,6 +26,11 @@ a 128-operation non-blocking work-submit budget for CUSA00223; the global defaul
 SECOND_SON_CAPTURE_SECONDS=120 deck_tools/run_second_son_bazzite.sh
 ```
 
+A bounded capture enables shadPS4's stdin IPC, sends `RUN`/`START`, and sends `STOP` at the requested
+deadline. It gives the emulator 15 seconds to close its presentation thread before the outer
+timeout may terminate Gamescope. The manifest records this as `ipc-stop-with-15s-grace`; an
+interactive zero-duration run keeps normal terminal input and records `interactive`.
+
 Use an explicit control or calibration value without changing the profile:
 
 ```bash
