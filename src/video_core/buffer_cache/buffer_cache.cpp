@@ -111,6 +111,7 @@ BufferCache::BufferCache(const Vulkan::Instance& instance_, Vulkan::Scheduler& s
                     "a power of two from 32 through 4096",
                     configured_work_budget);
     }
+    // An explicit environment value is reserved for controlled A/B runs and takes precedence.
     if (const char* work_budget = std::getenv("SHADPS4_PRECISE_READBACK_WORK_BUDGET")) {
         char* end = nullptr;
         const auto parsed = std::strtoull(work_budget, &end, 10);
