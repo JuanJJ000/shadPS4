@@ -99,11 +99,23 @@ BufferCache::BufferCache(const Vulkan::Instance& instance_, Vulkan::Scheduler& s
             precise_readback_stats_interval = parsed;
         }
     }
+    const auto valid_work_budget = [](u64 value) {
+        return value == 0 || (value >= 32 && value <= 4096 && (value & (value - 1)) == 0);
+    };
+    const u64 configured_work_budget = EmulatorSettings.GetReadbackWorkSubmitBudget();
+    if (valid_work_budget(configured_work_budget)) {
+        precise_readback_guest_work_submit_budget = configured_work_budget;
+    } else {
+        LOG_WARNING(Render_Vulkan,
+                    "Ignoring invalid configured precise readback work budget {}; expected 0 or "
+                    "a power of two from 32 through 4096",
+                    configured_work_budget);
+    }
+    // An explicit environment value is reserved for controlled A/B runs and takes precedence.
     if (const char* work_budget = std::getenv("SHADPS4_PRECISE_READBACK_WORK_BUDGET")) {
         char* end = nullptr;
         const auto parsed = std::strtoull(work_budget, &end, 10);
-        if (end != work_budget && *end == '\0' &&
-            (parsed == 0 || (parsed >= 32 && parsed <= 4096 && (parsed & (parsed - 1)) == 0))) {
+        if (end != work_budget && *end == '\0' && valid_work_budget(parsed)) {
             precise_readback_guest_work_submit_budget = parsed;
         } else {
             LOG_WARNING(Render_Vulkan,
