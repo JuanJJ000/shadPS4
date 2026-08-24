@@ -29,6 +29,7 @@ gamescope_enabled="${SECOND_SON_GAMESCOPE:-0}"
 gamescope_adaptive_sync="${SECOND_SON_GAMESCOPE_ADAPTIVE_SYNC:-0}"
 videoout_stats_interval="${SECOND_SON_VIDEOOUT_STATS_INTERVAL:-0}"
 screenshot_after_seconds="${SECOND_SON_SCREENSHOT_AFTER_SECONDS:-0}"
+screenshot_mode="${SECOND_SON_SCREENSHOT_MODE:-game}"
 
 if [[ ! "${capture_seconds}" =~ ^(0|[1-9][0-9]*)$ ]]; then
   echo "SECOND_SON_CAPTURE_SECONDS must be zero or a positive integer" >&2
@@ -61,6 +62,14 @@ if [[ ! "${screenshot_after_seconds}" =~ ^(0|[1-9]|[1-9][0-9]|[1-5][0-9][0-9]|60
   echo "SECOND_SON_SCREENSHOT_AFTER_SECONDS must be zero or 1 through 600 seconds" >&2
   exit 2
 fi
+
+case "${screenshot_mode}" in
+  game|overlay|both) ;;
+  *)
+    echo "SECOND_SON_SCREENSHOT_MODE must be game, overlay, or both" >&2
+    exit 2
+    ;;
+esac
 
 case "${readback_work_budget}" in
   profile|0|32|64|128|256|512|1024|2048|4096) ;;
@@ -243,6 +252,7 @@ EOF
   echo "gamescope_adaptive_sync=$([[ "${gamescope_adaptive_sync}" == "1" ]] && echo true || echo false)"
   echo "videoout_stats_interval=${videoout_stats_interval}"
   echo "screenshot_after_seconds=${screenshot_after_seconds}"
+  echo "screenshot_mode=${screenshot_mode}"
   sha256sum "${profile_receipt}"
   if [[ -n "${patch_xml}" ]]; then
     echo "patch=${patch_xml}"
@@ -324,6 +334,7 @@ if [[ "${videoout_stats_interval}" != "0" ]]; then
 fi
 if [[ "${screenshot_after_seconds}" != "0" ]]; then
   launch_env+=("SHADPS4_VIDEOOUT_SCREENSHOT_AFTER_SECONDS=${screenshot_after_seconds}")
+  launch_env+=("SHADPS4_VIDEOOUT_SCREENSHOT_MODE=${screenshot_mode}")
 fi
 if [[ "${readback_work_budget}" != "profile" ]]; then
   launch_env+=("SHADPS4_PRECISE_READBACK_WORK_BUDGET=${readback_work_budget}")
@@ -353,7 +364,7 @@ fi
 
 title_log="${shad_user}/log/${title_id}.log"
 if [[ -f "${title_log}" ]]; then
-  rg -n "Game-specific config used|GPU windowSize|GPU internalScreen|GPU fullScreen|GPU FSR|GPU readbacksMode|GPU readbackWorkSubmitBudget|GPU vblankFrequency|GPU shouldCopyGPUBuffers|PipelineCache|Guest display initialized|Guest flip rate set|VideoOut cadence|Requested game-only screenshot|Saved screenshot|Swapchain surface" "${title_log}" >"${run_dir}/evidence/title-config-proof.txt" || true
+  rg -n "Game-specific config used|GPU windowSize|GPU internalScreen|GPU fullScreen|GPU FSR|GPU readbacksMode|GPU readbackWorkSubmitBudget|GPU vblankFrequency|GPU shouldCopyGPUBuffers|PipelineCache|Guest display initialized|sceVideoOutSetBufferAttribute|RegisterBuffers|Guest flip rate set|VideoOut cadence|Requested (game|overlay|both) screenshot|Saved screenshot|Swapchain surface" "${title_log}" >"${run_dir}/evidence/title-config-proof.txt" || true
 fi
 
 if [[ -n "${patch_xml}" ]]; then

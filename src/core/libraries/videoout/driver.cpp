@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <cstdlib>
+#include <cstring>
 
 #include "common/assert.h"
 #include "common/debug.h"
@@ -82,11 +83,31 @@ VideoOutDriver::VideoOutDriver(u32 width, u32 height) {
                         screenshot_delay);
         }
     }
+    if (const char* screenshot_mode = std::getenv("SHADPS4_VIDEOOUT_SCREENSHOT_MODE")) {
+        if (std::strcmp(screenshot_mode, "game") == 0) {
+            screenshot_game_only = true;
+            screenshot_with_overlays = false;
+        } else if (std::strcmp(screenshot_mode, "overlay") == 0) {
+            screenshot_game_only = false;
+            screenshot_with_overlays = true;
+        } else if (std::strcmp(screenshot_mode, "both") == 0) {
+            screenshot_game_only = true;
+            screenshot_with_overlays = true;
+        } else {
+            LOG_WARNING(Lib_VideoOut,
+                        "Ignoring invalid VideoOut screenshot mode {}; expected game, overlay, or "
+                        "both",
+                        screenshot_mode);
+        }
+    }
+    const char* screenshot_mode =
+        screenshot_game_only ? (screenshot_with_overlays ? "both" : "game") : "overlay";
     LOG_INFO(Lib_VideoOut,
              "Guest display initialized: resolution={}x{}, vblankFrequency={} Hz, "
-             "refreshRateCode={}, cadenceStatsInterval={} s, screenshotAfter={} s",
+             "refreshRateCode={}, cadenceStatsInterval={} s, screenshotAfter={} s, "
+             "screenshotMode={}",
              width, height, vblank_frequency, main_port.resolution.refresh_rate,
-             cadence_stats_interval_seconds, screenshot_after_seconds);
+             cadence_stats_interval_seconds, screenshot_after_seconds, screenshot_mode);
     present_thread = std::jthread([&](std::stop_token token) { PresentThread(token); });
 }
 
@@ -456,10 +477,18 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
 
         if (!screenshot_requested && screenshot_after_seconds != 0 &&
             main_port.vblank_status.count >=
-                static_cast<u64>(EmulatorSettings.GetVblankFrequency()) * screenshot_after_seconds) {
-            VideoCore::RequestScreenshot(VideoCore::ScreenshotRequest::GameOnly);
+                static_cast<u64>(EmulatorSettings.GetVblankFrequency()) *
+                    screenshot_after_seconds) {
+            if (screenshot_game_only) {
+                VideoCore::RequestScreenshot(VideoCore::ScreenshotRequest::GameOnly);
+            }
+            if (screenshot_with_overlays) {
+                VideoCore::RequestScreenshot(VideoCore::ScreenshotRequest::WithOverlays);
+            }
             screenshot_requested = true;
-            LOG_INFO(Lib_VideoOut, "Requested game-only screenshot after {} seconds",
+            const char* screenshot_mode =
+                screenshot_game_only ? (screenshot_with_overlays ? "both" : "game") : "overlay";
+            LOG_INFO(Lib_VideoOut, "Requested {} screenshot after {} seconds", screenshot_mode,
                      screenshot_after_seconds);
         }
 

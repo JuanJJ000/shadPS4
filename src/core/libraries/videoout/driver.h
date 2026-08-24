@@ -115,6 +115,8 @@ private:
     VideoOutPort main_port{};
     u32 cadence_stats_interval_seconds{};
     u32 screenshot_after_seconds{};
+    bool screenshot_game_only{true};
+    bool screenshot_with_overlays{};
     std::jthread present_thread;
     std::queue<Request> requests;
 };

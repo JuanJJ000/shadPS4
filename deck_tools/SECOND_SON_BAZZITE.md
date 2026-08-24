@@ -55,9 +55,10 @@ SECOND_SON_INTERNAL_RESOLUTION=1080p SECOND_SON_OUTPUT_RESOLUTION=1440p \
   SECOND_SON_CAPTURE_SECONDS=120 deck_tools/run_second_son_bazzite.sh
 ```
 
-`SECOND_SON_SCREENSHOT_AFTER_SECONDS=1..600` requests one game-only PNG from the emulator's
-present thread, independent of desktop focus or screenshot portals. The request and saved path are
-recorded in the title log; zero disables it.
+`SECOND_SON_SCREENSHOT_AFTER_SECONDS=1..600` requests a PNG from the emulator's present thread,
+independent of desktop focus or screenshot portals. `SECOND_SON_SCREENSHOT_MODE=game|overlay|both`
+selects the pre-scaling guest buffer, the displayed post-scaling swapchain, or both. The request and
+saved paths are recorded in the title log; a zero delay disables timed capture.
 
 Request a real nested 4K/120 surface through Gamescope, with cadence counters that distinguish host
 vblanks from guest-produced frames:
@@ -86,10 +87,11 @@ Additional controlled selectors are `SECOND_SON_FSR=profile|on|off`,
 promoted until screenshots, actual swapchain extent, guest flip cadence, game speed, audio, and QTE
 behavior all agree.
 
-`evidence/title-config-proof.txt` records the resolved internal/output settings, FSR/RCAS state,
-requested and actual Vulkan swapchain extents, guest refresh-rate code and flip-rate request, plus
-opt-in `VideoOut cadence` intervals. A 120-Hz host presentation count is not treated as 120 FPS
-unless the guest-flip rate also approaches 120 without game-speed or audio distortion.
+`evidence/title-config-proof.txt` records the reported guest display size, the game's actual
+registered output-buffer dimensions, FSR/RCAS state, requested and actual Vulkan swapchain extents,
+guest refresh-rate code and flip-rate request, plus opt-in `VideoOut cadence` intervals. A 120-Hz
+host presentation count is not treated as 120 FPS unless the guest-flip rate also approaches 120
+without game-speed or audio distortion.
 
 On a Wayland desktop, capture the focused run through a temporary project-local ydotool keyboard:
 
