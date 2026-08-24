@@ -806,6 +806,7 @@ set(COMMON src/common/logging/classes.h
            src/common/scope_exit.h
            src/common/serdes.h
            src/common/sha1.h
+           src/common/atomic_shared_first_mutex.h
            src/common/shared_first_mutex.h
            src/common/signal_context.h
            src/common/signal_context.cpp

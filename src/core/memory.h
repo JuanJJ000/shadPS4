@@ -8,7 +8,7 @@
 #include <string>
 #include <string_view>
 #include "common/enum.h"
-#include "common/shared_first_mutex.h"
+#include "common/atomic_shared_first_mutex.h"
 #include "common/singleton.h"
 #include "common/types.h"
 #include "core/address_space.h"
@@ -334,7 +334,7 @@ private:
     PhysMap dmem_map;
     PhysMap fmem_map;
     VMAMap vma_map;
-    Common::SharedFirstMutex mutex{};
+    Common::AtomicSharedFirstMutex mutex{};
     std::mutex unmap_mutex{};
     u64 total_direct_size{};
     u64 total_flexible_size{};
