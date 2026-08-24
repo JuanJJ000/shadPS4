@@ -28,6 +28,7 @@ public:
 
     void Open();
     void Close();
+    [[nodiscard]] bool Reset();
     [[nodiscard]] bool IsOpened() const {
         return opened;
     }

@@ -17,6 +17,7 @@
 #include <functional>
 #include <future>
 #include <mutex>
+#include <system_error>
 #include <queue>
 
 namespace {
@@ -92,6 +93,8 @@ void DataBase::Open() {
         return;
     }
 
+    ar_is_read_only = true;
+
     const auto& game_info = Common::ElfInfo::Instance();
 
     using namespace Common::FS;
@@ -135,6 +138,30 @@ void DataBase::Close() {
 
     opened = false;
     LOG_INFO(Render, "Cache dumped");
+}
+
+bool DataBase::Reset() {
+    if (!IsOpened()) {
+        return false;
+    }
+
+    const auto old_cache_path = cache_path;
+    Close();
+
+    std::error_code error;
+    if (EmulatorSettings.IsPipelineCacheArchived()) {
+        std::filesystem::remove(old_cache_path, error);
+    } else {
+        std::filesystem::remove_all(old_cache_path, error);
+    }
+    if (error) {
+        LOG_ERROR(Render, "Failed to reset incompatible pipeline cache {}: {}",
+                  old_cache_path.string(), error.message());
+        return false;
+    }
+
+    Open();
+    return IsOpened();
 }
 
 template <typename T>

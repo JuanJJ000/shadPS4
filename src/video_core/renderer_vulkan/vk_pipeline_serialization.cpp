@@ -301,9 +301,9 @@ bool PipelineCache::LoadPipelineStage(Serialization::Archive& ar, size_t stage) 
     return true;
 }
 
-void PipelineCache::WarmUp() {
+bool PipelineCache::WarmUp() {
     if (!EmulatorSettings.IsPipelineCacheEnabled()) {
-        return;
+        return true;
     }
 
     Storage::DataBase::Instance().Open();
@@ -311,30 +311,39 @@ void PipelineCache::WarmUp() {
     // Check if cache is compatible
     std::vector<u8> profile_data{};
     Storage::DataBase::Instance().Load(Storage::BlobType::ShaderProfile, "profile", profile_data);
-    if (profile_data.empty()) {
+    const auto initialize_cache = [&] {
         Storage::DataBase::Instance().FinishPreload();
 
-        profile_data.resize(sizeof(profile));
-        std::memcpy(profile_data.data(), &profile, sizeof(profile));
+        std::vector<u8> current_profile(sizeof(profile));
+        std::memcpy(current_profile.data(), &profile, sizeof(profile));
         Storage::DataBase::Instance().Save(Storage::BlobType::ShaderProfile, "profile",
-                                           std::move(profile_data));
-        return;
+                                           std::move(current_profile));
+    };
+    const auto regenerate_cache = [&] {
+        if (!Storage::DataBase::Instance().Reset()) {
+            return false;
+        }
+        initialize_cache();
+        return true;
+    };
+    if (profile_data.empty()) {
+        initialize_cache();
+        return true;
     }
     if (profile_data.size() != sizeof(Shader::Profile)) {
         LOG_WARNING(Render,
-                    "Pipeline cache profile has unexpected size ({} != {}). Ignoring the cache",
+                    "Pipeline cache profile has unexpected size ({} != {}). Regenerating the "
+                    "cache",
                     profile_data.size(), sizeof(Shader::Profile));
-        Storage::DataBase::Instance().Close();
-        return;
+        return regenerate_cache();
     }
 
     Shader::Profile cached_profile{};
     std::memcpy(&cached_profile, profile_data.data(), sizeof(cached_profile));
     if (cached_profile != profile) {
-        LOG_WARNING(Render,
-                    "Pipeline cache isn't compatible with current system. Ignoring the cache");
-        Storage::DataBase::Instance().Close();
-        return;
+        LOG_WARNING(Render, "Pipeline cache isn't compatible with current system. Regenerating "
+                            "the cache");
+        return regenerate_cache();
     }
 
     u32 num_pipelines{};
@@ -375,6 +384,7 @@ void PipelineCache::WarmUp() {
     }
 
     Storage::DataBase::Instance().FinishPreload();
+    return true;
 }
 
 void PipelineCache::Sync() {

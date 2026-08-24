@@ -69,7 +69,7 @@ public:
                            AmdGpu::Liverpool* liverpool);
     ~PipelineCache();
 
-    void WarmUp();
+    [[nodiscard]] bool WarmUp();
     void Sync();
 
     bool LoadComputePipeline(Serialization::Archive& ar);

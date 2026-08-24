@@ -15,16 +15,20 @@ capture_seconds="${SECOND_SON_CAPTURE_SECONDS:-120}"
 validate_only="${SECOND_SON_VALIDATE_ONLY:-0}"
 readback_work_budget="${SECOND_SON_READBACK_WORK_BUDGET:-0}"
 patch_xml="${SECOND_SON_PATCH:-}"
+cache_seed_root="${SECOND_SON_CACHE_SEED_ROOT:-${live_user_root}}"
+skip_cache_seed="${SECOND_SON_SKIP_CACHE_SEED:-0}"
+pipeline_trace="${SECOND_SON_PIPELINE_TRACE:-0}"
 
 if [[ ! "${capture_seconds}" =~ ^(0|[1-9][0-9]*)$ ]]; then
   echo "SECOND_SON_CAPTURE_SECONDS must be zero or a positive integer" >&2
   exit 2
 fi
 
-case "${validate_only}" in
-  0|1) ;;
+case "${validate_only}:${skip_cache_seed}:${pipeline_trace}" in
+  0:0:0|0:0:1|0:1:0|0:1:1|1:0:0|1:0:1|1:1:0|1:1:1) ;;
   *)
-    echo "SECOND_SON_VALIDATE_ONLY must be 0 or 1" >&2
+    echo "SECOND_SON_VALIDATE_ONLY, SECOND_SON_SKIP_CACHE_SEED, and" \
+      "SECOND_SON_PIPELINE_TRACE must each be 0 or 1" >&2
     exit 2
     ;;
 esac
@@ -84,13 +88,23 @@ seed_directory() {
   fi
 }
 
+seed_cache_directory() {
+  local relative="cache/${title_id}"
+  if [[ -d "${cache_seed_root}/${relative}" ]]; then
+    mkdir -p "${shad_user}/${relative}"
+    cp -a --reflink=auto "${cache_seed_root}/${relative}/." "${shad_user}/${relative}/"
+  fi
+}
+
 # The capture profile is disposable. Copies ensure the runtime cannot mutate Steam's saves,
 # title configuration, or warmed pipeline cache.
 seed_file config.json
 seed_file keys.json
 seed_file users.json
 seed_directory home
-seed_directory "cache/${title_id}"
+if [[ "${skip_cache_seed}" == "0" ]]; then
+  seed_cache_directory
+fi
 
 install -m 0644 "${repo_dir}/deck_tools/second_son_bazzite_config.json" "${shad_user}/custom_configs/${title_id}.json"
 install -m 0644 "${repo_dir}/deck_tools/second_son_bazzite_input.ini" "${shad_user}/input_config/${title_id}.ini"
@@ -99,6 +113,22 @@ install -m 0644 "${repo_dir}/deck_tools/second_son_bazzite_input.ini" "${shad_us
 # controlled base when the live profile was intentionally unavailable.
 if [[ ! -f "${shad_user}/config.json" ]]; then
   install -m 0644 "${repo_dir}/deck_tools/second_son_bazzite_config.json" "${shad_user}/config.json"
+fi
+
+if [[ "${pipeline_trace}" == "1" ]]; then
+  python3 - "${shad_user}/config.json" "${shad_user}/custom_configs/${title_id}.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+for value in sys.argv[1:]:
+    path = Path(value)
+    config = json.loads(path.read_text(encoding="utf-8"))
+    config.setdefault("Log", {})["filter"] = (
+        "*:Critical Input:Info Loader:Info Config:Info Render:Info Render.Vulkan:Info"
+    )
+    path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+PY
 fi
 
 snapshot_live() {
@@ -153,6 +183,9 @@ EOF
   echo "live_user_root=${live_user_root}"
   echo "isolated_user_root=${shad_user}"
   echo "capture_seconds=${capture_seconds}"
+  echo "cache_seed_root=${cache_seed_root}"
+  echo "cache_seed_skipped=$([[ "${skip_cache_seed}" == "1" ]] && echo true || echo false)"
+  echo "pipeline_trace=$([[ "${pipeline_trace}" == "1" ]] && echo true || echo false)"
   echo "precise_readback_work_budget=${readback_work_budget}"
   if [[ -n "${patch_xml}" ]]; then
     echo "patch=${patch_xml}"
@@ -236,6 +269,26 @@ fi
 
 if [[ -f "${repo_dir}/deck_tools/summarize_mangohud.py" ]]; then
   python3 "${repo_dir}/deck_tools/summarize_mangohud.py" "${run_dir}" >"${run_dir}/evidence/performance-summary.txt" 2>&1 || true
+fi
+
+if [[ "${pipeline_trace}" == "1" ]]; then
+  {
+    echo "Pipeline cache capture summary"
+    printf 'preloaded_pipelines='
+    grep -Eo 'Preloaded [0-9]+ pipelines' "${run_dir}/console.log" |
+      tail -n 1 |
+      grep -Eo '[0-9]+' || echo 0
+    printf 'graphics_pipeline_compiles='
+    grep -c 'Compiling graphics pipeline' "${run_dir}/console.log" || true
+    printf 'compute_pipeline_compiles='
+    grep -c 'Compiling compute pipeline' "${run_dir}/console.log" || true
+    printf 'shader_compiles='
+    grep -c 'Compiling .* shader' "${run_dir}/console.log" || true
+    printf 'cache_regenerations='
+    grep -c 'Regenerating the cache' "${run_dir}/console.log" || true
+  } >"${run_dir}/evidence/pipeline-cache-summary.txt"
+  grep -E 'Preloaded [0-9]+ pipelines|Compiling (graphics|compute) pipeline|Regenerating the cache' \
+    "${run_dir}/console.log" >"${run_dir}/evidence/pipeline-cache-events.log" || true
 fi
 
 if [[ "${capture_seconds}" != "0" && ("${exit_status}" == "124" || "${exit_status}" == "143") ]]; then
