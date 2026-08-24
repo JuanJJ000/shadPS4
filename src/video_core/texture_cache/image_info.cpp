@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "common/assert.h"
+#include "common/logging/log.h"
 #include "core/libraries/kernel/process.h"
 #include "core/libraries/videoout/buffer.h"
 #include "shader_recompiler/resource.h"
@@ -117,7 +118,8 @@ ImageInfo::ImageInfo(const AmdGpu::DepthBuffer& buffer, u32 num_slices, VAddr ht
     }
 }
 
-ImageInfo::ImageInfo(const AmdGpu::Image& image, const Shader::ImageResource& desc) noexcept {
+ImageInfo::ImageInfo(const AmdGpu::Image& image, const Shader::ImageResource& desc,
+                     const bool needs_1d_compressed_fallback) noexcept {
     tile_mode = image.GetTileMode();
     array_mode = AmdGpu::GetArrayMode(tile_mode);
     pixel_format = LiverpoolToVK::SurfaceFormat(image.GetDataFmt(), image.GetNumberFmt());
@@ -130,9 +132,23 @@ ImageInfo::ImageInfo(const AmdGpu::Image& image, const Shader::ImageResource& de
     props.is_volume = type == AmdGpu::ImageType::Color3D;
     props.is_pow2 = image.pow2pad;
     props.is_block = AmdGpu::IsBlockCoded(image.GetDataFmt());
+    props.is_1d_compressed_fallback = needs_1d_compressed_fallback;
+    if (props.is_1d_compressed_fallback) {
+        type = Shader::Promote1dViewTo2d(type);
+    }
     size.width = image.width + 1;
-    size.height = image.height + 1;
+    const u32 descriptor_height = image.height + 1;
+    size.height = descriptor_height;
     size.depth = props.is_volume ? image.depth + 1 : 1;
+    if (props.is_1d_compressed_fallback) {
+        ASSERT_MSG(descriptor_height == 1,
+                   "Compressed guest 1D fallback requires a unit-height resource, got {}",
+                   descriptor_height);
+        LOG_DEBUG(Render_Vulkan,
+                  "Compressed guest {} {} descriptor {}x{} uses native-format 2D fallback {}x1",
+                  AmdGpu::NameOf(image.GetType()), vk::to_string(pixel_format), size.width,
+                  descriptor_height, size.width);
+    }
     pitch = image.Pitch();
     resources.levels = image.NumLevels();
     resources.layers = image.NumLayers();

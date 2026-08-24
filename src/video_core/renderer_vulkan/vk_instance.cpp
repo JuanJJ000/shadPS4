@@ -698,6 +698,31 @@ void Instance::CollectImageFormatInfo() {
     LOG_INFO(Render_Vulkan, "Block Texel View support: {}",
              supports_block_texel_view ? "Yes" : "No");
 
+    constexpr vk::ImageUsageFlags compressed_1d_usage =
+        vk::ImageUsageFlagBits::eTransferSrc | vk::ImageUsageFlagBits::eTransferDst |
+        vk::ImageUsageFlagBits::eSampled;
+    constexpr vk::ImageCreateFlags compressed_1d_flags =
+        vk::ImageCreateFlagBits::eMutableFormat | vk::ImageCreateFlagBits::eExtendedUsage;
+    constexpr std::array compressed_1d_formats{
+        vk::Format::eBc1RgbaUnormBlock, vk::Format::eBc1RgbaSrgbBlock,
+        vk::Format::eBc3UnormBlock,     vk::Format::eBc3SrgbBlock,
+        vk::Format::eBc4UnormBlock,     vk::Format::eBc5UnormBlock,
+    };
+    supports_compressed_1d_images =
+        std::ranges::all_of(compressed_1d_formats, [this](const vk::Format format) {
+            const vk::PhysicalDeviceImageFormatInfo2 format_info{
+                .format = format,
+                .type = vk::ImageType::e1D,
+                .tiling = vk::ImageTiling::eOptimal,
+                .usage = compressed_1d_usage,
+                .flags = compressed_1d_flags,
+            };
+            return physical_device.getImageFormatProperties2(format_info).result ==
+                   vk::Result::eSuccess;
+        });
+    LOG_INFO(Render_Vulkan, "Compressed 1D image support: {}",
+             supports_compressed_1d_images ? "Yes" : "No; using native-format 2D fallback");
+
     // Check and log format support details.
     for (const auto& format : LiverpoolToVK::SurfaceFormats()) {
         if (!IsFormatSupported(format.vk_format, format.flags)) {

@@ -418,6 +418,11 @@ public:
         return supports_block_texel_view;
     }
 
+    /// Returns whether the device can create the compressed 1D images used by guest shaders.
+    bool SupportsCompressed1dImages() const {
+        return supports_compressed_1d_images;
+    }
+
     /// Returns whether VK_IMAGE_CREATE_2D_VIEW_COMPATIBLE_BIT_EXT is supported on 3D images
     bool Is2dViewOf3dSupported() const {
         return image_2d_view_of_3d && image_2d_view_of_3d_features.image2DViewOf3D &&
@@ -516,6 +521,7 @@ private:
     bool image_view_min_lod{};
     bool supports_memory_budget{};
     bool supports_block_texel_view{};
+    bool supports_compressed_1d_images{};
     u64 total_memory_budget{};
     std::vector<size_t> valid_heaps;
 };

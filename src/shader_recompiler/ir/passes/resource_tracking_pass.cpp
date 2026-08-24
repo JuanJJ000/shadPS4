@@ -259,6 +259,8 @@ public:
     u32 Add(const ImageResource& desc) {
         const u32 index{Add(image_resources, desc, [&desc](const auto& existing) {
             return desc.sharp_idx == existing.sharp_idx && desc.is_array == existing.is_array &&
+                   desc.needs_1d_compressed_fallback ==
+                       existing.needs_1d_compressed_fallback &&
                    desc.mip_fallback_mode == existing.mip_fallback_mode &&
                    desc.constant_mip_index == existing.constant_mip_index;
         })};
@@ -561,6 +563,8 @@ void PatchImageSharp(IR::Block& block, IR::Inst& inst, Info& info, Descriptors& 
 
     auto image = image_res.GetSharp(info);
     ASSERT(image.GetType() != AmdGpu::ImageType::Invalid);
+    image_res.needs_1d_compressed_fallback = Shader::NeedsCompressed1dFallback(
+        profile.needs_1d_compressed_fallback, image.GetDataFmt(), image.GetBaseType());
 
     if (needs_mip_storage_fallback) {
         // If the mip level to IMAGE_(LOAD/STORE)_MIP is a constant, set up ImageResource
@@ -905,7 +909,7 @@ void PatchImageSampleArgs(IR::Block& block, IR::Inst& inst, Info& info,
 
     // Load first address components as denoted in 8.2.4 VGPR Usage Sea Islands Series Instruction
     // Set Architecture
-    const IR::Value offset = [&] -> IR::Value {
+    IR::Value offset = [&] -> IR::Value {
         if (!inst_info.has_offset) {
             return IR::U32{};
         }
@@ -943,7 +947,7 @@ void PatchImageSampleArgs(IR::Block& block, IR::Inst& inst, Info& info,
     }();
     const IR::F32 bias = inst_info.has_bias ? get_addr_reg(addr_reg++) : IR::F32{};
     const IR::F32 dref = inst_info.is_depth ? get_addr_reg(addr_reg++) : IR::F32{};
-    const auto [derivatives_dx, derivatives_dy] = [&] -> std::pair<IR::Value, IR::Value> {
+    auto [derivatives_dx, derivatives_dy] = [&] -> std::pair<IR::Value, IR::Value> {
         if (!inst_info.has_derivatives) {
             return {};
         }
@@ -1001,7 +1005,7 @@ void PatchImageSampleArgs(IR::Block& block, IR::Inst& inst, Info& info,
     };
 
     // Now we can load body components as noted in Table 8.9 Image Opcodes with Sampler
-    const IR::Value coords = [&] -> IR::Value {
+    IR::Value coords = [&] -> IR::Value {
         switch (view_type) {
         case AmdGpu::ImageType::Color1D: // x
             addr_reg = addr_reg + 1;
@@ -1024,6 +1028,26 @@ void PatchImageSampleArgs(IR::Block& block, IR::Inst& inst, Info& info,
             UNREACHABLE();
         }
     }();
+
+    if (image_res.needs_1d_compressed_fallback) {
+        // A single-row 2D view is sample-equivalent to the guest 1D view at the row center.
+        // Keep Y offsets and gradients zero so filtering and LOD selection remain X-only.
+        const auto row = ir.Imm32(0.5f);
+        if (view_type == AmdGpu::ImageType::Color1D) {
+            coords = ir.CompositeConstruct(coords, row);
+        } else {
+            ASSERT(view_type == AmdGpu::ImageType::Color1DArray);
+            coords = ir.CompositeConstruct(ir.CompositeExtract(coords, 0), row,
+                                           ir.CompositeExtract(coords, 1));
+        }
+        if (inst_info.has_offset) {
+            offset = ir.CompositeConstruct(offset, ir.Imm32(0u));
+        }
+        if (inst_info.has_derivatives) {
+            derivatives_dx = ir.CompositeConstruct(derivatives_dx, ir.Imm32(0.0f));
+            derivatives_dy = ir.CompositeConstruct(derivatives_dy, ir.Imm32(0.0f));
+        }
+    }
 
     ASSERT(!inst_info.has_lod || !inst_info.has_lod_clamp);
     const bool explicit_lod = inst_info.has_lod || inst_info.force_level0;
@@ -1087,7 +1111,7 @@ void PatchImageArgs(IR::Block& block, IR::Inst& inst, Info& info) {
 
     // Now that we know the image type, adjust texture coordinate vector.
     IR::Inst* body = inst.Arg(1).InstRecursive();
-    const auto [coords, arg] = [&] -> std::pair<IR::Value, IR::Value> {
+    auto [coords, arg] = [&] -> std::pair<IR::Value, IR::Value> {
         switch (view_type) {
         case AmdGpu::ImageType::Color1D: // x, [lod]
             return {body->Arg(0), body->Arg(1)};
@@ -1122,6 +1146,23 @@ void PatchImageArgs(IR::Block& block, IR::Inst& inst, Info& info) {
             UNREACHABLE_MSG("Unknown image type {}", view_type);
         }
     }();
+
+    if (image_res.needs_1d_compressed_fallback) {
+        // Sampling queries use normalized coordinates; fetch/storage instructions use integer
+        // texel coordinates. In both cases the promoted host image has exactly one logical row.
+        const bool normalized = inst.GetOpcode() == IR::Opcode::ImageQueryLod;
+        IR::Value row = ir.Imm32(0u);
+        if (normalized) {
+            row = ir.Imm32(0.5f);
+        }
+        if (view_type == AmdGpu::ImageType::Color1D) {
+            coords = ir.CompositeConstruct(coords, row);
+        } else {
+            ASSERT(view_type == AmdGpu::ImageType::Color1DArray);
+            coords = ir.CompositeConstruct(ir.CompositeExtract(coords, 0), row,
+                                           ir.CompositeExtract(coords, 1));
+        }
+    }
 
     const auto has_ms = view_type == AmdGpu::ImageType::Color2DMsaa ||
                         view_type == AmdGpu::ImageType::Color2DMsaaArray;

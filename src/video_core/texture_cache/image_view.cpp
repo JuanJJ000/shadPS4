@@ -47,7 +47,8 @@ bool IsViewTypeCompatible(AmdGpu::ImageType view_type, AmdGpu::ImageType image_t
     }
 }
 
-ImageViewInfo::ImageViewInfo(const AmdGpu::Image& image, const Shader::ImageResource& desc) noexcept
+ImageViewInfo::ImageViewInfo(const AmdGpu::Image& image, const Shader::ImageResource& desc,
+                             const bool needs_1d_compressed_fallback) noexcept
     : is_storage{desc.is_written} {
     const auto dfmt = image.GetDataFmt();
     auto nfmt = image.GetNumberFmt();
@@ -64,6 +65,9 @@ ImageViewInfo::ImageViewInfo(const AmdGpu::Image& image, const Shader::ImageReso
     range.extent.levels = image.NumViewLevels(desc.is_array);
     range.extent.layers = image.NumViewLayers(desc.is_array);
     type = image.GetViewType(desc.is_array);
+    if (needs_1d_compressed_fallback) {
+        type = Shader::Promote1dViewTo2d(type);
+    }
     min_lod = static_cast<u32>(image.min_lod);
 
     if (!is_storage) {
