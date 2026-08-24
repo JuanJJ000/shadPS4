@@ -1,0 +1,51 @@
+{
+  "Audio": {},
+  "Debug": {},
+  "GPU": {
+    "copy_gpu_buffers": true,
+    "direct_memory_access_enabled": false,
+    "dump_shaders": false,
+    "fsr_enabled": true,
+    "full_screen": true,
+    "full_screen_mode": "Fullscreen",
+    "hdr_allowed": false,
+    "patch_shaders": false,
+    "present_mode": "Mailbox",
+    "rcas_attenuation": 0,
+    "rcas_enabled": true,
+    "readback_linear_images_enabled": false,
+    "readbacks_mode": 2,
+    "vblank_frequency": 60,
+    "window_height": 1440,
+    "window_width": 2560
+  },
+  "General": {
+    "neo_mode": false
+  },
+  "Input": {
+    "background_controller_input": false,
+    "motion_controls_enabled": true
+  },
+  "Log": {
+    "append": false,
+    "enable": true,
+    "filter": "*:Critical Input:Info Loader:Info Config:Info Render:Info",
+    "separate": true,
+    "skip_duplicate": true,
+    "sync": false
+  },
+  "Vulkan": {
+    "gpu_id": 0,
+    "pipeline_cache_archived": false,
+    "pipeline_cache_enabled": true,
+    "renderdoc_enabled": false,
+    "vkcrash_diagnostic_enabled": false,
+    "vkguest_markers": false,
+    "vkhost_markers": false,
+    "vkvalidation_core_enabled": false,
+    "vkvalidation_enabled": false,
+    "vkvalidation_gpu_enabled": false,
+    "vkvalidation_sync_enabled": false
+  },
+  "WindowsGuestRedZoneProtection": {}
+}
