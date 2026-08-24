@@ -164,14 +164,39 @@ public:
         vk::AccessFlags2 access_mask = vk::AccessFlagBits2::eNone;
         vk::ImageLayout layout = vk::ImageLayout::eUndefined;
     };
+    struct ReadTransitionCache {
+        // A generation match proves that no tracked subresource state changed after this
+        // non-write transition was satisfied.
+        SubresourceRange range;
+        vk::ImageLayout layout;
+        vk::AccessFlags2 access_mask;
+        u64 generation;
+
+        [[nodiscard]] bool Matches(const SubresourceRange& requested_range,
+                                   vk::ImageLayout requested_layout,
+                                   vk::AccessFlags2 requested_access_mask,
+                                   u64 current_generation) const noexcept {
+            return generation == current_generation && range == requested_range &&
+                   layout == requested_layout && access_mask == requested_access_mask;
+        }
+    };
     struct BackingImage {
         UniqueImage image;
         State state;
         std::vector<State> subresource_states;
+        std::optional<ReadTransitionCache> read_transition_cache;
+        u64 subresource_state_generation{};
         boost::container::small_vector<ImageViewInfo, 4> image_view_infos;
         boost::container::small_vector<ImageViewId, 4> image_view_ids;
         u32 num_samples;
     };
+
+    [[nodiscard]] static bool IsWriteAccess(vk::AccessFlags2 access_mask) noexcept {
+        constexpr auto write_flags = vk::AccessFlagBits2::eTransferWrite |
+                                     vk::AccessFlagBits2::eShaderWrite |
+                                     vk::AccessFlagBits2::eMemoryWrite;
+        return static_cast<bool>(access_mask & write_flags);
+    }
     std::deque<BackingImage> backing_images;
     BackingImage* backing{};
     boost::container::static_vector<u64, 16> mip_hashes{};

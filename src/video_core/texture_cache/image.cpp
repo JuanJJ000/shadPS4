@@ -274,12 +274,29 @@ Image::Barriers Image::GetBarriers(vk::ImageLayout dst_layout, vk::AccessFlags2 
         subres_range &&
         (subres_range->base != SubresourceBase{} || subres_range->extent != info.resources);
     const bool partially_transited = !subresource_states.empty();
+    const bool dst_is_write = IsWriteAccess(dst_mask);
+
+    // Texture bindings can request the same large partial range thousands of times without
+    // changing its state. Preserve the normal last_state side effect, but skip the linear scan
+    // when the cached read proof is still sealed by the current generation.
+    if (needs_partial_transition && partially_transited && !dst_is_write) {
+        const auto& cache = backing->read_transition_cache;
+        if (cache && cache->Matches(*subres_range, dst_layout, dst_mask,
+                                    backing->subresource_state_generation)) {
+            last_state.layout = dst_layout;
+            last_state.access_mask = dst_mask;
+            last_state.pl_stage = dst_stage;
+            return {};
+        }
+    }
 
     Barriers barriers;
     if (needs_partial_transition || partially_transited) {
         if (!partially_transited) {
             subresource_states.resize(info.resources.levels * info.resources.layers);
             std::fill(subresource_states.begin(), subresource_states.end(), last_state);
+            ++backing->subresource_state_generation;
+            backing->read_transition_cache.reset();
         }
 
         // In case of partial transition, we need to change the specified subresources only.
@@ -304,10 +321,7 @@ Image::Barriers Image::GetBarriers(vk::ImageLayout dst_layout, vk::AccessFlags2 
                 ASSERT(subres_idx < subresource_states.size());
                 auto& state = subresource_states[subres_idx];
 
-                constexpr auto write_flags = vk::AccessFlagBits2::eTransferWrite |
-                                             vk::AccessFlagBits2::eShaderWrite |
-                                             vk::AccessFlagBits2::eMemoryWrite;
-                const bool is_write = static_cast<bool>(state.access_mask & write_flags);
+                const bool is_write = IsWriteAccess(state.access_mask);
                 if (state.layout != dst_layout || state.access_mask != dst_mask || is_write) {
                     barriers.emplace_back(vk::ImageMemoryBarrier2{
                         .srcStageMask = state.pl_stage,
@@ -334,14 +348,26 @@ Image::Barriers Image::GetBarriers(vk::ImageLayout dst_layout, vk::AccessFlags2 
             }
         }
 
+        if (!barriers.empty()) {
+            ++backing->subresource_state_generation;
+        }
+
         if (!needs_partial_transition) {
             subresource_states.clear();
+            ++backing->subresource_state_generation;
+            backing->read_transition_cache.reset();
+        } else if (!dst_is_write) {
+            backing->read_transition_cache = ReadTransitionCache{
+                .range = *subres_range,
+                .layout = dst_layout,
+                .access_mask = dst_mask,
+                .generation = backing->subresource_state_generation,
+            };
+        } else {
+            backing->read_transition_cache.reset();
         }
     } else { // Full resource transition
-        constexpr auto write_flags = vk::AccessFlagBits2::eTransferWrite |
-                                     vk::AccessFlagBits2::eShaderWrite |
-                                     vk::AccessFlagBits2::eMemoryWrite;
-        const bool is_write = static_cast<bool>(last_state.access_mask & write_flags);
+        const bool is_write = IsWriteAccess(last_state.access_mask);
         if (last_state.layout == dst_layout && last_state.access_mask == dst_mask && !is_write) {
             return {};
         }
@@ -905,6 +931,9 @@ void Image::SetBackingSamples(u32 num_samples, bool copy_backing) {
         new_backing->state.layout = dst_layout;
         new_backing->state.access_mask = dst_access;
         new_backing->state.pl_stage = dst_stage;
+        new_backing->subresource_states.clear();
+        ++new_backing->subresource_state_generation;
+        new_backing->read_transition_cache.reset();
     }
 
     backing = new_backing;
