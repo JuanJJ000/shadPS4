@@ -225,8 +225,13 @@ if [[ -f "${title_log}" ]]; then
 fi
 
 if [[ -n "${patch_xml}" ]]; then
-  rg -n "Applied patch: Disable Motion Blur Exposure \(CUSA00223 01\.00\)" "${shad_user}/log" \
-    >"${run_dir}/evidence/patch-application-proof.txt" || true
+  # A requested patch is not an accepted capture unless the runtime proves it applied the exact
+  # named entry. `rg` is the condition, so a miss reaches the evidence-producing failure branch.
+  if ! rg -n "Applied patch: Disable Motion Blur Exposure \(CUSA00223 01\.00\)" \
+    "${shad_user}/log" >"${run_dir}/evidence/patch-application-proof.txt"; then
+    echo "Requested Second Son patch has no runtime application proof." >&2
+    exit 1
+  fi
 fi
 
 if [[ -f "${repo_dir}/deck_tools/summarize_mangohud.py" ]]; then

@@ -49,6 +49,10 @@ It refuses input unless all of these facts are exact:
 - exactly one raw-byte line targets guest address `0x00c5bc70` with the eight replacement bytes;
 - no additional metadata or patch lines exist.
 
+Input filenames are not authorization fields and may be chosen by the owner. Basenames appear in
+the report for human orientation only; the complete source hash and exact XML semantics establish
+identity.
+
 The source and XML are opened read-only, hashed again after validation, and required to retain
 their file identity. Success emits no payload bytes in normal mode. JSON mode emits only schema,
 basenames, sizes, hashes, exact accepted coordinates, facts, and explicit non-claims. It never
@@ -61,7 +65,8 @@ for a separate launcher.
 
 `run_second_son_bazzite.sh` accepts `SECOND_SON_PATCH` only after the guard succeeds. The selected
 patch hash is recorded in the disposable run manifest, and the launcher passes the same file to
-shadPS4 with `--patch`. With the variable unset, the baseline path is byte-for-byte unchanged.
+shadPS4 with `--patch`. A patched capture fails unless the title log proves that exact named patch
+was applied. With the variable unset, the baseline path is byte-for-byte unchanged.
 
 ## Failure behavior
 
@@ -93,4 +98,3 @@ guard and receive its own analysis.
 This work does not claim that zero exposure is visually correct, that all motion blur is removed,
 that the 01.05 PS4 Pro path is present, or that resolution, textures, temporal reconstruction, and
 frame pacing are changed. Those remain separate evidence lanes.
-
