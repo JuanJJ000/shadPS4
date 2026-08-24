@@ -1,3 +1,8 @@
+<!--
+SPDX-FileCopyrightText: Copyright 2026 shadPS4 Emulator Project
+SPDX-License-Identifier: GPL-2.0-or-later
+-->
+
 # inFAMOUS Second Son on Bazzite
 
 `run_second_son_bazzite.sh` creates a disposable shadPS4 user profile for a direct-binary
@@ -33,6 +38,62 @@ SECOND_SON_READBACK_WORK_BUDGET=256 SECOND_SON_CAPTURE_SECONDS=120 \
 The launcher records `profile` when it defers to the game-specific setting and only exports
 `SHADPS4_PRECISE_READBACK_WORK_BUDGET` for an explicit override. This keeps normal Steam-profile
 behavior title-specific while preserving an exact A/B control.
+
+## Fidelity and high-refresh matrix
+
+Every fidelity override is applied only to the disposable per-run title profile. `profile` leaves
+the checked-in value unchanged. Supported internal/output presets are `720p`, `1080p`, `1440p`,
+`4k`, and `8k`; supported vblank frequencies are 30, 50, 60, 90, 120, and 144 Hz. Each run records
+the request, changed JSON keys, and fully resolved values in `evidence/fidelity-profile.json`.
+
+Test a sharper 1080p guest surface at 1440p output without changing the live Steam profile:
+
+```bash
+SECOND_SON_INTERNAL_RESOLUTION=1080p SECOND_SON_OUTPUT_RESOLUTION=1440p \
+  SECOND_SON_VIDEOOUT_STATS_INTERVAL=5 SECOND_SON_PIPELINE_TRACE=1 \
+  SECOND_SON_CAPTURE_SECONDS=120 deck_tools/run_second_son_bazzite.sh
+```
+
+Request a real nested 4K/120 surface through Gamescope, with cadence counters that distinguish host
+vblanks from guest-produced frames:
+
+```bash
+SECOND_SON_INTERNAL_RESOLUTION=1080p SECOND_SON_OUTPUT_RESOLUTION=4k \
+  SECOND_SON_VBLANK_FREQUENCY=120 SECOND_SON_GAMESCOPE=1 \
+  SECOND_SON_VIDEOOUT_STATS_INTERVAL=5 SECOND_SON_PIPELINE_TRACE=1 \
+  SECOND_SON_CAPTURE_SECONDS=120 deck_tools/run_second_son_bazzite.sh
+```
+
+The 8K path is deliberately bounded and remains a stress experiment. Start with 1080p internal
+rendering and 8K output scaling; test 4K/8K internal rendering only after memory and stability gates:
+
+```bash
+SECOND_SON_INTERNAL_RESOLUTION=1080p SECOND_SON_OUTPUT_RESOLUTION=8k \
+  SECOND_SON_VBLANK_FREQUENCY=60 SECOND_SON_GAMESCOPE=1 \
+  SECOND_SON_VIDEOOUT_STATS_INTERVAL=5 SECOND_SON_CAPTURE_SECONDS=30 \
+  deck_tools/run_second_son_bazzite.sh
+```
+
+Additional controlled selectors are `SECOND_SON_FSR=profile|on|off`,
+`SECOND_SON_RCAS=profile|on|off`, `SECOND_SON_RCAS_ATTENUATION=profile|0..3000`, and
+`SECOND_SON_PRESENT_MODE=profile|Mailbox|Fifo|Immediate`. Set
+`SECOND_SON_GAMESCOPE_ADAPTIVE_SYNC=1` only for a separate VRR candidate. The stable profile is not
+promoted until screenshots, actual swapchain extent, guest flip cadence, game speed, audio, and QTE
+behavior all agree.
+
+`evidence/title-config-proof.txt` records the resolved internal/output settings, FSR/RCAS state,
+requested and actual Vulkan swapchain extents, guest refresh-rate code and flip-rate request, plus
+opt-in `VideoOut cadence` intervals. A 120-Hz host presentation count is not treated as 120 FPS
+unless the guest-flip rate also approaches 120 without game-speed or audio distortion.
+
+On a Wayland desktop, capture the focused run through a temporary project-local ydotool keyboard:
+
+```bash
+deck_tools/capture_second_son.sh overlay
+```
+
+The helper shuts the temporary input daemon down immediately after sending shadPS4's Alt+F12
+shortcut. X11 sessions continue to use `xdotool`.
 
 Create a controlled cold/warm pipeline pair without touching the live Steam cache. The cold run
 starts with no title cache; the warm run copies only the cold run's generated cache while still

@@ -301,6 +301,22 @@ TEST_F(EmulatorSettingsTest, ReadbackWorkSubmitBudgetSupportsPerGameOverride) {
     EXPECT_EQ(temp_settings->GetReadbackWorkSubmitBudget(), 0u);
 }
 
+TEST_F(EmulatorSettingsTest, InternalScreenResolutionSupportsPerGameOverride) {
+    json game;
+    game["GPU"]["internal_screen_width"] = 1920;
+    game["GPU"]["internal_screen_height"] = 1080;
+    WriteJson(GameConfig("CUSA00223"), game);
+
+    ASSERT_TRUE(temp_settings->Load("CUSA00223"));
+    temp_settings->SetConfigMode(ConfigMode::Default);
+    EXPECT_EQ(temp_settings->GetInternalScreenWidth(), 1920u);
+    EXPECT_EQ(temp_settings->GetInternalScreenHeight(), 1080u);
+
+    temp_settings->SetConfigMode(ConfigMode::Global);
+    EXPECT_EQ(temp_settings->GetInternalScreenWidth(), 1280u);
+    EXPECT_EQ(temp_settings->GetInternalScreenHeight(), 720u);
+}
+
 // tests for global config.json file
 
 TEST_F(EmulatorSettingsTest, SaveCreatesConfigJson) {
@@ -717,6 +733,8 @@ TEST_F(EmulatorSettingsTest, GetAllOverrideableKeysContainsRepresentativeKeys) {
     EXPECT_TRUE(has("volume_slider"));
     // GPU
     EXPECT_TRUE(has("window_width"));
+    EXPECT_TRUE(has("internal_screen_width"));
+    EXPECT_TRUE(has("internal_screen_height"));
     EXPECT_TRUE(has("null_gpu"));
     EXPECT_TRUE(has("vblank_frequency"));
     // Vulkan
@@ -752,6 +770,8 @@ TEST_F(EmulatorSettingsTest, GetGPUOverrideableFieldsContainsWindowAndFullscreen
     };
     EXPECT_TRUE(has("window_width"));
     EXPECT_TRUE(has("window_height"));
+    EXPECT_TRUE(has("internal_screen_width"));
+    EXPECT_TRUE(has("internal_screen_height"));
     EXPECT_TRUE(has("full_screen"));
     EXPECT_TRUE(has("vblank_frequency"));
 }

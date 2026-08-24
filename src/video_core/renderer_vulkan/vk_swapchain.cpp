@@ -241,6 +241,13 @@ void Swapchain::SetSurfaceProperties() {
         image_count = std::min(image_count, capabilities.maxImageCount);
     }
 
+    LOG_INFO(Render_Vulkan,
+             "Swapchain surface: requested={}x{}, actual={}x{}, min={}x{}, max={}x{}, "
+             "images={}, presentMode={}",
+             width, height, extent.width, extent.height, capabilities.minImageExtent.width,
+             capabilities.minImageExtent.height, capabilities.maxImageExtent.width,
+             capabilities.maxImageExtent.height, image_count, vk::to_string(present_mode));
+
     // Prefer identity transform if possible
     transform = vk::SurfaceTransformFlagBitsKHR::eIdentity;
     if (!(capabilities.supportedTransforms & transform)) {

@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: Copyright 2025-2026 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <cstdlib>
+
 #include "common/assert.h"
 #include "common/debug.h"
 #include "common/thread.h"
@@ -41,10 +43,37 @@ constexpr u32 PixelFormatBpp(PixelFormat pixel_format) {
 }
 
 VideoOutDriver::VideoOutDriver(u32 width, u32 height) {
+    const u32 vblank_frequency = EmulatorSettings.GetVblankFrequency();
     main_port.resolution.full_width = width;
     main_port.resolution.full_height = height;
     main_port.resolution.pane_width = width;
     main_port.resolution.pane_height = height;
+    if (vblank_frequency >= 120) {
+        main_port.resolution.refresh_rate = SCE_VIDEO_OUT_REFRESH_RATE_119_88HZ;
+    } else if (vblank_frequency >= 90) {
+        main_port.resolution.refresh_rate = SCE_VIDEO_OUT_REFRESH_RATE_89_91HZ;
+    } else if (vblank_frequency >= 50 && vblank_frequency < 55) {
+        main_port.resolution.refresh_rate = SCE_VIDEO_OUT_REFRESH_RATE_50HZ;
+    } else {
+        main_port.resolution.refresh_rate = SCE_VIDEO_OUT_REFRESH_RATE_59_94HZ;
+    }
+    if (const char* stats_interval = std::getenv("SHADPS4_VIDEOOUT_CADENCE_STATS_INTERVAL")) {
+        char* end = nullptr;
+        const auto parsed = std::strtoul(stats_interval, &end, 10);
+        if (end != stats_interval && *end == '\0' && parsed >= 1 && parsed <= 60) {
+            cadence_stats_interval_seconds = static_cast<u32>(parsed);
+        } else {
+            LOG_WARNING(Lib_VideoOut,
+                        "Ignoring invalid VideoOut cadence interval {}; expected 1 through 60 "
+                        "seconds",
+                        stats_interval);
+        }
+    }
+    LOG_INFO(Lib_VideoOut,
+             "Guest display initialized: resolution={}x{}, vblankFrequency={} Hz, "
+             "refreshRateCode={}, cadenceStatsInterval={} s",
+             width, height, vblank_frequency, main_port.resolution.refresh_rate,
+             cadence_stats_interval_seconds);
     present_thread = std::jthread([&](std::stop_token token) { PresentThread(token); });
 }
 
@@ -344,6 +373,9 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
     Common::SetCurrentThreadRealtime(vblank_period);
 
     Common::AccurateTimer timer{vblank_period};
+    auto previous_stats_time = std::chrono::steady_clock::now();
+    u64 previous_vblank_count = 0;
+    u64 previous_guest_flip_count = 0;
 
     const auto receive_request = [this] -> Request {
         std::scoped_lock lk{mutex};
@@ -407,6 +439,25 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
         }
 
         timer.End();
+
+        if (cadence_stats_interval_seconds != 0) {
+            const auto now = std::chrono::steady_clock::now();
+            const std::chrono::duration<double> elapsed = now - previous_stats_time;
+            if (elapsed.count() >= cadence_stats_interval_seconds) {
+                const u64 vblank_count = main_port.vblank_status.count;
+                const u64 guest_flip_count = main_port.flip_status.count;
+                const u64 vblank_delta = vblank_count - previous_vblank_count;
+                const u64 guest_flip_delta = guest_flip_count - previous_guest_flip_count;
+                LOG_INFO(Lib_VideoOut,
+                         "VideoOut cadence: interval={:.3f} s, vblanks={} ({:.3f} Hz), "
+                         "guestFlips={} ({:.3f} FPS), flipRate={}",
+                         elapsed.count(), vblank_delta, vblank_delta / elapsed.count(),
+                         guest_flip_delta, guest_flip_delta / elapsed.count(), main_port.flip_rate);
+                previous_stats_time = now;
+                previous_vblank_count = vblank_count;
+                previous_guest_flip_count = guest_flip_count;
+            }
+        }
     }
 }
 

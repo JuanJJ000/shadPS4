@@ -18,6 +18,16 @@ patch_xml="${SECOND_SON_PATCH:-}"
 cache_seed_root="${SECOND_SON_CACHE_SEED_ROOT:-${live_user_root}}"
 skip_cache_seed="${SECOND_SON_SKIP_CACHE_SEED:-0}"
 pipeline_trace="${SECOND_SON_PIPELINE_TRACE:-0}"
+internal_resolution="${SECOND_SON_INTERNAL_RESOLUTION:-profile}"
+output_resolution="${SECOND_SON_OUTPUT_RESOLUTION:-profile}"
+vblank_frequency="${SECOND_SON_VBLANK_FREQUENCY:-profile}"
+fsr_mode="${SECOND_SON_FSR:-profile}"
+rcas_mode="${SECOND_SON_RCAS:-profile}"
+rcas_attenuation="${SECOND_SON_RCAS_ATTENUATION:-profile}"
+present_mode="${SECOND_SON_PRESENT_MODE:-profile}"
+gamescope_enabled="${SECOND_SON_GAMESCOPE:-0}"
+gamescope_adaptive_sync="${SECOND_SON_GAMESCOPE_ADAPTIVE_SYNC:-0}"
+videoout_stats_interval="${SECOND_SON_VIDEOOUT_STATS_INTERVAL:-0}"
 
 if [[ ! "${capture_seconds}" =~ ^(0|[1-9][0-9]*)$ ]]; then
   echo "SECOND_SON_CAPTURE_SECONDS must be zero or a positive integer" >&2
@@ -33,6 +43,19 @@ case "${validate_only}:${skip_cache_seed}:${pipeline_trace}" in
     ;;
 esac
 
+case "${gamescope_enabled}:${gamescope_adaptive_sync}" in
+  0:0|0:1|1:0|1:1) ;;
+  *)
+    echo "SECOND_SON_GAMESCOPE and SECOND_SON_GAMESCOPE_ADAPTIVE_SYNC must each be 0 or 1" >&2
+    exit 2
+    ;;
+esac
+
+if [[ ! "${videoout_stats_interval}" =~ ^(0|[1-9]|[1-5][0-9]|60)$ ]]; then
+  echo "SECOND_SON_VIDEOOUT_STATS_INTERVAL must be zero or 1 through 60 seconds" >&2
+  exit 2
+fi
+
 case "${readback_work_budget}" in
   profile|0|32|64|128|256|512|1024|2048|4096) ;;
   *)
@@ -41,7 +64,10 @@ case "${readback_work_budget}" in
     ;;
 esac
 
-for required in "${binary}" "${eboot}" "${repo_dir}/deck_tools/second_son_bazzite_config.json" "${repo_dir}/deck_tools/second_son_bazzite_input.ini"; do
+for required in "${binary}" "${eboot}" \
+  "${repo_dir}/deck_tools/second_son_bazzite_config.json" \
+  "${repo_dir}/deck_tools/second_son_bazzite_input.ini" \
+  "${repo_dir}/deck_tools/second_son_bazzite_profile.py"; do
   if [[ ! -f "${required}" ]]; then
     echo "Missing required file: ${required}" >&2
     exit 1
@@ -109,13 +135,25 @@ fi
 install -m 0644 "${repo_dir}/deck_tools/second_son_bazzite_config.json" "${shad_user}/custom_configs/${title_id}.json"
 install -m 0644 "${repo_dir}/deck_tools/second_son_bazzite_input.ini" "${shad_user}/input_config/${title_id}.ini"
 
+profile_receipt="${run_dir}/evidence/fidelity-profile.json"
+python3 "${repo_dir}/deck_tools/second_son_bazzite_profile.py" \
+  "${shad_user}/custom_configs/${title_id}.json" \
+  --receipt "${profile_receipt}" \
+  --internal-resolution "${internal_resolution}" \
+  --output-resolution "${output_resolution}" \
+  --vblank-frequency "${vblank_frequency}" \
+  --fsr "${fsr_mode}" \
+  --rcas "${rcas_mode}" \
+  --rcas-attenuation "${rcas_attenuation}" \
+  --present-mode "${present_mode}"
+
 # A missing global profile would be generated before the title profile loads. Seed a minimal
 # controlled base when the live profile was intentionally unavailable.
 if [[ ! -f "${shad_user}/config.json" ]]; then
   install -m 0644 "${repo_dir}/deck_tools/second_son_bazzite_config.json" "${shad_user}/config.json"
 fi
 
-if [[ "${pipeline_trace}" == "1" ]]; then
+if [[ "${pipeline_trace}" == "1" || "${videoout_stats_interval}" != "0" ]]; then
   python3 - "${shad_user}/config.json" "${shad_user}/custom_configs/${title_id}.json" <<'PY'
 import json
 import sys
@@ -125,7 +163,8 @@ for value in sys.argv[1:]:
     path = Path(value)
     config = json.loads(path.read_text(encoding="utf-8"))
     config.setdefault("Log", {})["filter"] = (
-        "*:Critical Input:Info Loader:Info Config:Info Render:Info Render.Vulkan:Info"
+        "*:Critical Input:Info Loader:Info Config:Info Lib.VideoOut:Info Render:Info "
+        "Render.Vulkan:Info"
     )
     path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
 PY
@@ -187,6 +226,17 @@ EOF
   echo "cache_seed_skipped=$([[ "${skip_cache_seed}" == "1" ]] && echo true || echo false)"
   echo "pipeline_trace=$([[ "${pipeline_trace}" == "1" ]] && echo true || echo false)"
   echo "precise_readback_work_budget=${readback_work_budget}"
+  echo "internal_resolution=${internal_resolution}"
+  echo "output_resolution=${output_resolution}"
+  echo "vblank_frequency=${vblank_frequency}"
+  echo "fsr=${fsr_mode}"
+  echo "rcas=${rcas_mode}"
+  echo "rcas_attenuation=${rcas_attenuation}"
+  echo "present_mode=${present_mode}"
+  echo "gamescope=$([[ "${gamescope_enabled}" == "1" ]] && echo true || echo false)"
+  echo "gamescope_adaptive_sync=$([[ "${gamescope_adaptive_sync}" == "1" ]] && echo true || echo false)"
+  echo "videoout_stats_interval=${videoout_stats_interval}"
+  sha256sum "${profile_receipt}"
   if [[ -n "${patch_xml}" ]]; then
     echo "patch=${patch_xml}"
     sha256sum "${patch_xml}"
@@ -215,7 +265,41 @@ launch=("${binary}" --game "${eboot}" --same-process --fullscreen true --show-fp
 if [[ -n "${patch_xml}" ]]; then
   launch+=(--patch "${patch_xml}")
 fi
-if command -v mangohud >/dev/null 2>&1; then
+readarray -t resolved_fidelity < <(python3 - "${profile_receipt}" <<'PY'
+import json
+import sys
+
+resolved = json.load(open(sys.argv[1], encoding="utf-8"))["resolved"]
+print(resolved["output_resolution"][0])
+print(resolved["output_resolution"][1])
+print(resolved["vblank_frequency"])
+PY
+)
+resolved_output_width="${resolved_fidelity[0]}"
+resolved_output_height="${resolved_fidelity[1]}"
+resolved_vblank_frequency="${resolved_fidelity[2]}"
+
+if [[ "${gamescope_enabled}" == "1" ]]; then
+  if ! command -v gamescope >/dev/null 2>&1; then
+    echo "SECOND_SON_GAMESCOPE=1 requested, but gamescope is unavailable" >&2
+    exit 1
+  fi
+  gamescope_launch=(
+    gamescope
+    -W "${resolved_output_width}"
+    -H "${resolved_output_height}"
+    -w "${resolved_output_width}"
+    -h "${resolved_output_height}"
+    -r "${resolved_vblank_frequency}"
+    -f
+    --force-windows-fullscreen
+    --mangoapp
+  )
+  if [[ "${gamescope_adaptive_sync}" == "1" ]]; then
+    gamescope_launch+=(--adaptive-sync)
+  fi
+  launch=("${gamescope_launch[@]}" -- "${launch[@]}")
+elif command -v mangohud >/dev/null 2>&1; then
   launch=(mangohud "${launch[@]}")
 fi
 
@@ -228,6 +312,9 @@ launch_env=(
   "SHADPS4_PRECISE_READBACK_STATS=${SHADPS4_PRECISE_READBACK_STATS:-0}"
   "SHADPS4_PRECISE_READBACK_PHASE_TIMING=${SHADPS4_PRECISE_READBACK_PHASE_TIMING:-0}"
 )
+if [[ "${videoout_stats_interval}" != "0" ]]; then
+  launch_env+=("SHADPS4_VIDEOOUT_CADENCE_STATS_INTERVAL=${videoout_stats_interval}")
+fi
 if [[ "${readback_work_budget}" != "profile" ]]; then
   launch_env+=("SHADPS4_PRECISE_READBACK_WORK_BUDGET=${readback_work_budget}")
 fi
@@ -256,7 +343,7 @@ fi
 
 title_log="${shad_user}/log/${title_id}.log"
 if [[ -f "${title_log}" ]]; then
-  rg -n "Game-specific config used|GPU readbacksMode|GPU readbackWorkSubmitBudget|GPU vblankFrequency|GPU shouldCopyGPUBuffers|PipelineCache" "${title_log}" >"${run_dir}/evidence/title-config-proof.txt" || true
+  rg -n "Game-specific config used|GPU windowSize|GPU internalScreen|GPU fullScreen|GPU FSR|GPU readbacksMode|GPU readbackWorkSubmitBudget|GPU vblankFrequency|GPU shouldCopyGPUBuffers|PipelineCache|Guest display initialized|Guest flip rate set|VideoOut cadence|Swapchain surface" "${title_log}" >"${run_dir}/evidence/title-config-proof.txt" || true
 fi
 
 if [[ -n "${patch_xml}" ]]; then

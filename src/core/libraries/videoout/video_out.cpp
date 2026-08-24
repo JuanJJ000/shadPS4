@@ -139,8 +139,18 @@ s32 PS4_SYSV_ABI sceVideoOutRegisterBuffers(s32 handle, s32 startIndex, void* co
 }
 
 s32 PS4_SYSV_ABI sceVideoOutSetFlipRate(s32 handle, s32 rate) {
-    LOG_TRACE(Lib_VideoOut, "called");
-    driver->GetPort(handle)->flip_rate = rate;
+    auto* port = driver->GetPort(handle);
+    if (!port) {
+        LOG_ERROR(Lib_VideoOut, "Invalid port handle = {}", handle);
+        return ORBIS_VIDEO_OUT_ERROR_INVALID_HANDLE;
+    }
+    port->flip_rate = rate;
+    const double maximum_delivered_fps =
+        rate >= 0 ? static_cast<double>(EmulatorSettings.GetVblankFrequency()) / (rate + 1) : 0.0;
+    LOG_INFO(Lib_VideoOut,
+             "Guest flip rate set: handle={}, rate={}, vblankFrequency={} Hz, "
+             "maximumDelivered={:.3f} FPS",
+             handle, rate, EmulatorSettings.GetVblankFrequency(), maximum_delivered_fps);
     return ORBIS_OK;
 }
 

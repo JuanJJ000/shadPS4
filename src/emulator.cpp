@@ -487,6 +487,15 @@ void Emulator::Run(std::filesystem::path file, std::vector<std::string> args,
     LOG_INFO(Config, "Log type: {}", EmulatorSettings.GetLogType());
 #endif
     LOG_INFO(Config, "GPU isNullGpu: {}", EmulatorSettings.IsNullGPU());
+    LOG_INFO(Config, "GPU windowSize: {}x{}", EmulatorSettings.GetWindowWidth(),
+             EmulatorSettings.GetWindowHeight());
+    LOG_INFO(Config, "GPU internalScreen: {}x{}", EmulatorSettings.GetInternalScreenWidth(),
+             EmulatorSettings.GetInternalScreenHeight());
+    LOG_INFO(Config, "GPU fullScreen: {} mode={} presentMode={}",
+             EmulatorSettings.IsFullScreen(), EmulatorSettings.GetFullScreenMode(),
+             EmulatorSettings.GetPresentMode());
+    LOG_INFO(Config, "GPU FSR: {} RCAS: {} attenuation={}", EmulatorSettings.IsFsrEnabled(),
+             EmulatorSettings.IsRcasEnabled(), EmulatorSettings.GetRcasAttenuation());
     LOG_INFO(Config, "GPU readbacksMode: {}", EmulatorSettings.GetReadbacksMode());
     LOG_INFO(Config, "GPU readbackWorkSubmitBudget: {}",
              EmulatorSettings.GetReadbackWorkSubmitBudget());
