@@ -54,6 +54,10 @@
 #define CONTROLLER_SIDEWAYS_RIGHT 0x01000000
 #define CONTROLLER_SHAKE 0x02000000
 #define CONTROLLER_SPRAY_ASSIST 0x04000000
+#define CONTROLLER_TOUCHPAD_SWIPE_UP 0x08000000
+#define CONTROLLER_TOUCHPAD_SWIPE_DOWN 0x10000000
+#define CONTROLLER_TOUCHPAD_SWIPE_LEFT 0x20000000
+#define CONTROLLER_TOUCHPAD_SWIPE_RIGHT 0x40000000
 
 #define HOTKEY_FULLSCREEN 0xf0000001
 #define HOTKEY_PAUSE 0xf0000002
@@ -159,6 +163,10 @@ const std::map<std::string, u32> string_to_cbutton_map = {
     {"controller_sideways_right", CONTROLLER_SIDEWAYS_RIGHT},
     {"controller_shake", CONTROLLER_SHAKE},
     {"controller_spray_assist", CONTROLLER_SPRAY_ASSIST},
+    {"controller_touchpad_swipe_up", CONTROLLER_TOUCHPAD_SWIPE_UP},
+    {"controller_touchpad_swipe_down", CONTROLLER_TOUCHPAD_SWIPE_DOWN},
+    {"controller_touchpad_swipe_left", CONTROLLER_TOUCHPAD_SWIPE_LEFT},
+    {"controller_touchpad_swipe_right", CONTROLLER_TOUCHPAD_SWIPE_RIGHT},
     {"qam", SDL_GAMEPAD_BUTTON_MISC1},
     {"r4", SDL_GAMEPAD_BUTTON_RIGHT_PADDLE1},
     {"l4", SDL_GAMEPAD_BUTTON_LEFT_PADDLE1},
@@ -548,7 +556,7 @@ public:
 
 class ControllerAllOutputs {
 public:
-    static constexpr u64 output_count = 47;
+    static constexpr u64 output_count = 51;
     std::array<ControllerOutput, output_count> data = {
         // Important: these have to be the first, or else they will update in the wrong order
         ControllerOutput(LEFTJOYSTICK_HALFMODE),
@@ -573,10 +581,15 @@ public:
         ControllerOutput(SDL_GAMEPAD_BUTTON_TOUCHPAD_LEFT),   // TouchPad
         ControllerOutput(SDL_GAMEPAD_BUTTON_TOUCHPAD_CENTER), // TouchPad
         ControllerOutput(SDL_GAMEPAD_BUTTON_TOUCHPAD_RIGHT),  // TouchPad
-        ControllerOutput(SDL_GAMEPAD_BUTTON_DPAD_UP),         // Up
-        ControllerOutput(SDL_GAMEPAD_BUTTON_DPAD_DOWN),       // Down
-        ControllerOutput(SDL_GAMEPAD_BUTTON_DPAD_LEFT),       // Left
-        ControllerOutput(SDL_GAMEPAD_BUTTON_DPAD_RIGHT),      // Right
+        // Synthetic swipes must start after a superseded fixed-position touch is released.
+        ControllerOutput(CONTROLLER_TOUCHPAD_SWIPE_UP),
+        ControllerOutput(CONTROLLER_TOUCHPAD_SWIPE_DOWN),
+        ControllerOutput(CONTROLLER_TOUCHPAD_SWIPE_LEFT),
+        ControllerOutput(CONTROLLER_TOUCHPAD_SWIPE_RIGHT),
+        ControllerOutput(SDL_GAMEPAD_BUTTON_DPAD_UP),    // Up
+        ControllerOutput(SDL_GAMEPAD_BUTTON_DPAD_DOWN),  // Down
+        ControllerOutput(SDL_GAMEPAD_BUTTON_DPAD_LEFT),  // Left
+        ControllerOutput(SDL_GAMEPAD_BUTTON_DPAD_RIGHT), // Right
 
         // Axis mappings
         // ControllerOutput(SDL_GAMEPAD_BUTTON_INVALID, SDL_GAMEPAD_AXIS_LEFTX, false),

@@ -28,6 +28,13 @@ enum class Axis {
     AxisMax
 };
 
+enum class TouchpadSwipeDirection {
+    Up,
+    Down,
+    Left,
+    Right,
+};
+
 struct TouchpadEntry {
     u8 ID = 0;
     bool state{};
@@ -99,6 +106,7 @@ public:
     void UpdateAcceleration(const float acceleration[3]);
     void SetMotionOverride(s8 mode);
     void StartSprayAssist();
+    void StartTouchpadSwipe(TouchpadSwipeDirection direction);
     void PollState();
     void ResetOrientation();
     void SetLightBarRGB(u8 const r, u8 const g, u8 const b);
@@ -115,6 +123,7 @@ public:
 private:
     // m_state_mutex must be held by the caller.
     void ApplyMotionInputLocked(u64 timestamp);
+    void ApplyTouchpadSwipeLocked(u64 timestamp);
     void FinishSprayAssistLocked(u64 timestamp);
     void PushStateLocked(u64 timestamp = 0);
     void UpdateOrientationLocked(u64 timestamp);
@@ -130,6 +139,9 @@ private:
     int raw_trigger_right{};
     u64 spray_assist_start{};
     bool spray_assist_active{};
+    u64 touchpad_swipe_start{};
+    TouchpadSwipeDirection touchpad_swipe_direction{TouchpadSwipeDirection::Up};
+    bool touchpad_swipe_active{};
 
     State m_state;
 

@@ -27,6 +27,9 @@ constexpr u64 SpraySidewaysEnd = 2'000'000;
 constexpr u64 SprayShakeEnd = 5'000'000;
 constexpr u64 SpraySettleEnd = 5'750'000;
 constexpr u64 SprayPaintEnd = 45'750'000;
+constexpr u64 TouchpadSwipeDuration = 350'000;
+constexpr float TouchpadSwipeNearEdge = 0.15f;
+constexpr float TouchpadSwipeFarEdge = 0.85f;
 
 void CalculateOrientation(const Libraries::Pad::OrbisFVector3& angular_velocity, float delta_time,
                           const Libraries::Pad::OrbisFQuaternion& last_orientation,
@@ -161,10 +164,32 @@ void GameController::StartSprayAssist() {
     LOG_INFO(Input, "Controller spray assist started");
 }
 
+void GameController::StartTouchpadSwipe(TouchpadSwipeDirection direction) {
+    std::lock_guard lock{m_state_mutex};
+    const u64 timestamp = Libraries::Kernel::sceKernelGetProcessTime();
+    touchpad_swipe_start = timestamp;
+    touchpad_swipe_direction = direction;
+    touchpad_swipe_active = true;
+
+    auto& touch = m_state.touchpad[0];
+    const bool no_touch_active = !touch.state && !m_state.touchpad[1].state;
+    if (!touch.state) {
+        touch.ID = m_next_touch_id;
+        m_next_touch_id = m_next_touch_id == 127 ? 1 : m_next_touch_id + 1;
+    }
+    if (no_touch_active) {
+        m_touch_down_timestamp = timestamp;
+    }
+    ApplyTouchpadSwipeLocked(timestamp);
+    PushStateLocked(timestamp);
+    LOG_INFO(Input, "Controller touchpad swipe started ({})", std::to_underlying(direction));
+}
+
 void GameController::PollState() {
     std::lock_guard lock{m_state_mutex};
     const u64 timestamp = Libraries::Kernel::sceKernelGetProcessTime();
     ApplyMotionInputLocked(timestamp);
+    ApplyTouchpadSwipeLocked(timestamp);
     PushStateLocked(timestamp);
 }
 
@@ -230,6 +255,8 @@ void GameController::DisconnectController() {
     raw_trigger_right = 0;
     spray_assist_start = 0;
     spray_assist_active = false;
+    touchpad_swipe_start = 0;
+    touchpad_swipe_active = false;
     motion_override = 0;
     m_next_touch_id = 1;
     m_touch_down_timestamp = 0;
@@ -305,6 +332,46 @@ void GameController::ApplyMotionInputLocked(u64 timestamp) {
         constexpr float sideways_accel[3] = {-9.81f, 0.0f, 0.0f};
         std::memcpy(gyro_buf, aim_gyro, sizeof(gyro_buf));
         std::memcpy(accel_buf, sideways_accel, sizeof(accel_buf));
+    }
+}
+
+void GameController::ApplyTouchpadSwipeLocked(u64 timestamp) {
+    if (!touchpad_swipe_active) {
+        return;
+    }
+
+    const u64 elapsed = timestamp >= touchpad_swipe_start ? timestamp - touchpad_swipe_start : 0;
+    const float progress =
+        std::clamp(static_cast<float>(elapsed) / TouchpadSwipeDuration, 0.0f, 1.0f);
+    const float forward = std::lerp(TouchpadSwipeNearEdge, TouchpadSwipeFarEdge, progress);
+    const float reverse = std::lerp(TouchpadSwipeFarEdge, TouchpadSwipeNearEdge, progress);
+    float x = 0.5f;
+    float y = 0.5f;
+
+    switch (touchpad_swipe_direction) {
+    case TouchpadSwipeDirection::Up:
+        y = reverse;
+        break;
+    case TouchpadSwipeDirection::Down:
+        y = forward;
+        break;
+    case TouchpadSwipeDirection::Left:
+        x = reverse;
+        break;
+    case TouchpadSwipeDirection::Right:
+        x = forward;
+        break;
+    }
+
+    const bool is_down = elapsed < TouchpadSwipeDuration;
+    m_state.OnTouchpad(0, is_down, x, y);
+    if (!is_down) {
+        touchpad_swipe_start = 0;
+        touchpad_swipe_active = false;
+        if (!m_state.touchpad[1].state) {
+            m_touch_down_timestamp = 0;
+        }
+        LOG_INFO(Input, "Controller touchpad swipe completed");
     }
 }
 
