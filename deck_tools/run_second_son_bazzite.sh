@@ -275,7 +275,9 @@ if [[ "${pipeline_trace}" == "1" ]]; then
   {
     echo "Pipeline cache capture summary"
     printf 'preloaded_pipelines='
-    rg -o 'Preloaded [0-9]+ pipelines' "${run_dir}/console.log" | tail -n 1 | rg -o '[0-9]+' || echo 0
+    grep -Eo 'Preloaded [0-9]+ pipelines' "${run_dir}/console.log" |
+      tail -n 1 |
+      grep -Eo '[0-9]+' || echo 0
     printf 'graphics_pipeline_compiles='
     grep -c 'Compiling graphics pipeline' "${run_dir}/console.log" || true
     printf 'compute_pipeline_compiles='
@@ -285,7 +287,7 @@ if [[ "${pipeline_trace}" == "1" ]]; then
     printf 'cache_regenerations='
     grep -c 'Regenerating the cache' "${run_dir}/console.log" || true
   } >"${run_dir}/evidence/pipeline-cache-summary.txt"
-  rg 'Preloaded [0-9]+ pipelines|Compiling (graphics|compute) pipeline|Regenerating the cache' \
+  grep -E 'Preloaded [0-9]+ pipelines|Compiling (graphics|compute) pipeline|Regenerating the cache' \
     "${run_dir}/console.log" >"${run_dir}/evidence/pipeline-cache-events.log" || true
 fi
 

@@ -301,9 +301,9 @@ bool PipelineCache::LoadPipelineStage(Serialization::Archive& ar, size_t stage) 
     return true;
 }
 
-void PipelineCache::WarmUp() {
+bool PipelineCache::WarmUp() {
     if (!EmulatorSettings.IsPipelineCacheEnabled()) {
-        return;
+        return true;
     }
 
     Storage::DataBase::Instance().Open();
@@ -319,19 +319,23 @@ void PipelineCache::WarmUp() {
         Storage::DataBase::Instance().Save(Storage::BlobType::ShaderProfile, "profile",
                                            std::move(current_profile));
     };
+    const auto regenerate_cache = [&] {
+        if (!Storage::DataBase::Instance().Reset()) {
+            return false;
+        }
+        initialize_cache();
+        return true;
+    };
     if (profile_data.empty()) {
         initialize_cache();
-        return;
+        return true;
     }
     if (profile_data.size() != sizeof(Shader::Profile)) {
         LOG_WARNING(Render,
                     "Pipeline cache profile has unexpected size ({} != {}). Regenerating the "
                     "cache",
                     profile_data.size(), sizeof(Shader::Profile));
-        if (Storage::DataBase::Instance().Reset()) {
-            initialize_cache();
-        }
-        return;
+        return regenerate_cache();
     }
 
     Shader::Profile cached_profile{};
@@ -339,10 +343,7 @@ void PipelineCache::WarmUp() {
     if (cached_profile != profile) {
         LOG_WARNING(Render, "Pipeline cache isn't compatible with current system. Regenerating "
                             "the cache");
-        if (Storage::DataBase::Instance().Reset()) {
-            initialize_cache();
-        }
-        return;
+        return regenerate_cache();
     }
 
     u32 num_pipelines{};
@@ -383,6 +384,7 @@ void PipelineCache::WarmUp() {
     }
 
     Storage::DataBase::Instance().FinishPreload();
+    return true;
 }
 
 void PipelineCache::Sync() {

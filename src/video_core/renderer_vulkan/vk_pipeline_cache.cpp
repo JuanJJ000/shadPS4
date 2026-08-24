@@ -311,7 +311,9 @@ PipelineCache::PipelineCache(const Instance& instance_, Scheduler& scheduler_,
         .supports_shader_stencil_export = instance_.IsShaderStencilExportSupported(),
         .needs_1d_compressed_fallback = !instance_.SupportsCompressed1dImages(),
     };
-    WarmUp();
+    if (!WarmUp()) {
+        LOG_ERROR(Render, "Persistent pipeline caching is disabled for this session");
+    }
 
     auto [cache_result, cache] = instance.GetDevice().createPipelineCacheUnique({});
     ASSERT_MSG(cache_result == vk::Result::eSuccess, "Failed to create pipeline cache: {}",
