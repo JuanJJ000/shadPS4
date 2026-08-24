@@ -9,6 +9,30 @@ This is the living record for the local Steam Deck-focused shadPS4 fork. An item
 improvement until it has been measured on the user's own legally dumped game in a visible Gamescope
 session.
 
+## Stream-watch cursor correction — issue #149 — 2026-08-24
+
+### RR — Really Readable rundown
+
+- **What happened — Proven:** software CPU-clock and hardware CPU-cycle profiles independently put
+  `StreamBuffer::Commit` at 14.38% and 13.19% of warmed Second Son GpuComm samples. The cursor is the
+  count of valid watches and points to the next free slot, but same-tick coalescing read that free
+  slot instead of the last valid watch. Commit `6c8cdfcf` restores the intended
+  one-watch-per-command-buffer invariant through a focused, standalone record helper.
+- **What it means — Proven:** same-tick commits extend the previous watch's upper bound, while a
+  new scheduler tick appends one watch. The focused suite passes 2/2, the combined lock/watch suite
+  passes 7/7, the existing Deck suite passes 142/142, and the portable optimized Linux executable
+  builds and completes the exact title run with clean cache/profile state.
+- **Performance boundary — Proven:** the candidate moved the concentrated cycle-sampling leaf to
+  the adjacent `CurrentTick()` atomic load rather than eliminating the high-frequency path. Its
+  four-run warmed bracket averaged 29.295 versus 29.180 post-load FPS (+0.39%; neutral) and 27.810
+  versus 28.395 tail FPS (-2.06%). No performance improvement is claimed.
+- **Why — Inference:** the correction removes redundant watch records and matches the wait-loop
+  count invariant, but the per-commit scheduler tick read remains. The bracket does not justify a
+  broader scheduling change.
+- **What happens next — Unknown:** prove a safe way to reduce high-frequency tick/path work without
+  weakening stream-buffer reuse synchronization. Interactive traversal, combat, long-session,
+  controller/QTE, audio, game-speed, and texture activation remain open.
+
 ## Atomic VMA reader lock milestone — issue #148 — 2026-08-24
 
 ### RR — Really Readable rundown
