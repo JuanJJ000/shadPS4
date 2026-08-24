@@ -259,8 +259,7 @@ public:
     u32 Add(const ImageResource& desc) {
         const u32 index{Add(image_resources, desc, [&desc](const auto& existing) {
             return desc.sharp_idx == existing.sharp_idx && desc.is_array == existing.is_array &&
-                   desc.needs_1d_compressed_fallback ==
-                       existing.needs_1d_compressed_fallback &&
+                   desc.needs_1d_compressed_fallback == existing.needs_1d_compressed_fallback &&
                    desc.mip_fallback_mode == existing.mip_fallback_mode &&
                    desc.constant_mip_index == existing.constant_mip_index;
         })};

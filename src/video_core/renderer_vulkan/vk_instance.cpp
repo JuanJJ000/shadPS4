@@ -698,15 +698,14 @@ void Instance::CollectImageFormatInfo() {
     LOG_INFO(Render_Vulkan, "Block Texel View support: {}",
              supports_block_texel_view ? "Yes" : "No");
 
-    constexpr vk::ImageUsageFlags compressed_1d_usage =
-        vk::ImageUsageFlagBits::eTransferSrc | vk::ImageUsageFlagBits::eTransferDst |
-        vk::ImageUsageFlagBits::eSampled;
+    constexpr vk::ImageUsageFlags compressed_1d_usage = vk::ImageUsageFlagBits::eTransferSrc |
+                                                        vk::ImageUsageFlagBits::eTransferDst |
+                                                        vk::ImageUsageFlagBits::eSampled;
     constexpr vk::ImageCreateFlags compressed_1d_flags =
         vk::ImageCreateFlagBits::eMutableFormat | vk::ImageCreateFlagBits::eExtendedUsage;
     constexpr std::array compressed_1d_formats{
-        vk::Format::eBc1RgbaUnormBlock, vk::Format::eBc1RgbaSrgbBlock,
-        vk::Format::eBc3UnormBlock,     vk::Format::eBc3SrgbBlock,
-        vk::Format::eBc4UnormBlock,     vk::Format::eBc5UnormBlock,
+        vk::Format::eBc1RgbaUnormBlock, vk::Format::eBc1RgbaSrgbBlock, vk::Format::eBc3UnormBlock,
+        vk::Format::eBc3SrgbBlock,      vk::Format::eBc4UnormBlock,    vk::Format::eBc5UnormBlock,
     };
     supports_compressed_1d_images =
         std::ranges::all_of(compressed_1d_formats, [this](const vk::Format format) {
