@@ -13,10 +13,11 @@ emits metadata; it neither extracts nor decodes payload objects.
 
 ## Reference boundary
 
-The public Ghost of Tsushima Blender toolkit parses a later Sucker Punch PACK kind-2 row as
-FourCC/u32-size chunks and a DIC list of u64 offset/hash pairs. That is useful independent evidence
-for a shape worth testing. It is not authority for Second Son object types, offsets beyond the DIC
-registry, or safe replacement.
+The public [Ghost of Tsushima Blender
+toolkit](https://github.com/coolab342/Ghost-of-Tsushima-Toolkit-for-Blender) parses a later Sucker
+Punch PACK kind-2 row as FourCC/u32-size chunks and a DIC list of u64 offset/hash pairs. That is
+useful independent evidence for a shape worth testing. It is not authority for Second Son object
+types, offsets beyond the DIC registry, or safe replacement.
 
 ## Contract
 
@@ -90,4 +91,26 @@ the XPPS filename as proof. Injection remains blocked on byte-exact rebuild and 
 
 ## Usage
 
-Implementation and exact commands are intentionally queued behind this contract.
+Run the focused tests:
+
+```sh
+python3 -B -m unittest -v deck_tools/test_second_son_xpps_chunks.py
+```
+
+Classify one high-kind-2 row only when the whole source hash matches:
+
+```sh
+deck_tools/second_son_xpps_chunks.py /path/to/owned/file.xpps \
+  --expected-sha256 64-lowercase-hex-characters \
+  --row 2
+```
+
+The first owned result retained source SHA-256
+`254c56a776b3c0317007e07d22a293404103c79ccc28c0f64a5c7f6b9a5588c7` and exactly covered its
+3,104-byte row with five chunks: `KNLI`, ` DIC`, `PYTO`, `PLPS`, and terminal ` DNE`. Its DIC
+content is exactly `8 + 77 * 16` bytes; all 77 offsets are inside the XPPS data region.
+
+The same guarded classifier accepted all 59 owned `graffiti_*.xpps` files. Every file has the same
+five-tag sequence and exact row coverage. Across the family it observed 5,708 bounded DIC entries
+(74 to 125 per file) using only 16 distinct opaque hash words. This proves a consistent structural
+family; it does not identify any of those hashes or offsets as textures.
