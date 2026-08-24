@@ -4,11 +4,20 @@
 #pragma once
 
 #include <span>
+#include <string>
+#include <string_view>
+#include <vector>
 
 #include "common/types.h"
 #include "video_core/renderer_vulkan/vk_common.h"
 
 namespace Vulkan {
+
+/**
+ * @brief Converts GLSL source to SPIR-V without creating a Vulkan object.
+ */
+std::vector<u32> CompileToSPV(std::string_view code, vk::ShaderStageFlagBits stage,
+                              std::vector<std::string> defines = {});
 
 /**
  * @brief Creates a vulkan shader module from GLSL by converting it to SPIR-V using glslang.

@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "video_core/buffer_cache/buffer.h"
+#include "video_core/cache_storage.h"
+#include "video_core/renderer_vulkan/host_shader_cache.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/renderer_vulkan/vk_shader_util.h"
@@ -134,13 +136,37 @@ vk::Pipeline TileManager::GetTilingPipeline(const ImageInfo& info, bool is_tiler
         defines.emplace_back(fmt::format("IS_TILER=1"));
     }
 
-    const auto& module = Vulkan::Compile(HostShaders::TILING_COMP,
-                                         vk::ShaderStageFlagBits::eCompute, device, defines);
     const auto module_name = fmt::format("{}_{} {}", magic_enum::enum_name(info.tile_mode),
                                          info.num_bits, is_tiler ? "tiler" : "detiler");
-    LOG_INFO(Render_Vulkan, "Compiling shader {}", module_name);
-    for (const auto& def : defines) {
-        LOG_INFO(Render_Vulkan, "#define {}", def);
+    const auto cache_name = fmt::format(
+        "host_tiling_{:016x}",
+        Vulkan::HostShaderCacheKey(HostShaders::TILING_COMP,
+                                   vk::ShaderStageFlagBits::eCompute, defines));
+
+    std::vector<u32> spv;
+    Storage::DataBase::Instance().Load(Storage::BlobType::ShaderBinary, cache_name, spv);
+    const bool cache_hit = Vulkan::IsValidHostShaderSpirv(spv);
+    if (!cache_hit) {
+        if (!spv.empty()) {
+            LOG_WARNING(Render_Vulkan, "Cached host shader {} is invalid; recompiling",
+                        module_name);
+        }
+        LOG_INFO(Render_Vulkan, "Compiling shader {}", module_name);
+        for (const auto& def : defines) {
+            LOG_INFO(Render_Vulkan, "#define {}", def);
+        }
+        spv = Vulkan::CompileToSPV(HostShaders::TILING_COMP,
+                                   vk::ShaderStageFlagBits::eCompute, defines);
+        ASSERT_MSG(Vulkan::IsValidHostShaderSpirv(spv),
+                   "Failed to compile valid SPIR-V for host shader {}", module_name);
+    } else {
+        LOG_INFO(Render_Vulkan, "Loaded cached shader {}", module_name);
+    }
+
+    const auto module = Vulkan::CompileSPV(spv, device);
+    if (!cache_hit) {
+        Storage::DataBase::Instance().Save(Storage::BlobType::ShaderBinary, cache_name,
+                                           std::move(spv));
     }
     Vulkan::SetObjectName(device, module, module_name);
     const vk::PipelineShaderStageCreateInfo shader_ci = {

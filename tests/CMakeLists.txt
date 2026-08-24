@@ -13,6 +13,7 @@ set(TEST_TARGETS
     shadps4_settings_test
     shadps4_ngs2_test
     shadps4_gcn_test
+    shadps4_host_shader_cache_test
     shadps4_image_transition_cache_test
 )
 
@@ -167,6 +168,7 @@ set(GCN_TEST_SOURCES
 add_executable(shadps4_settings_test ${SETTINGS_TEST_SOURCES})
 add_executable(shadps4_ngs2_test ${NGS2_TEST_SOURCES})
 add_executable(shadps4_gcn_test ${GCN_TEST_SOURCES})
+add_executable(shadps4_host_shader_cache_test test_host_shader_cache.cpp)
 add_executable(shadps4_image_transition_cache_test test_image_transition_cache.cpp)
 
 foreach(t ${TEST_TARGETS})
@@ -213,6 +215,10 @@ target_link_libraries(shadps4_image_transition_cache_test PRIVATE
     Vulkan::Headers
     fmt::fmt
     spdlog::spdlog
+)
+target_link_libraries(shadps4_host_shader_cache_test PRIVATE
+    GTest::gtest_main
+    Vulkan::Headers
 )
 
 if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR
