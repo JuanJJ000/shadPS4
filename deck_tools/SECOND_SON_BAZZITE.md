@@ -50,9 +50,14 @@ Test a sharper 1080p guest surface at 1440p output without changing the live Ste
 
 ```bash
 SECOND_SON_INTERNAL_RESOLUTION=1080p SECOND_SON_OUTPUT_RESOLUTION=1440p \
+  SECOND_SON_SCREENSHOT_AFTER_SECONDS=25 \
   SECOND_SON_VIDEOOUT_STATS_INTERVAL=5 SECOND_SON_PIPELINE_TRACE=1 \
   SECOND_SON_CAPTURE_SECONDS=120 deck_tools/run_second_son_bazzite.sh
 ```
+
+`SECOND_SON_SCREENSHOT_AFTER_SECONDS=1..600` requests one game-only PNG from the emulator's
+present thread, independent of desktop focus or screenshot portals. The request and saved path are
+recorded in the title log; zero disables it.
 
 Request a real nested 4K/120 surface through Gamescope, with cadence counters that distinguish host
 vblanks from guest-produced frames:
@@ -89,11 +94,13 @@ unless the guest-flip rate also approaches 120 without game-speed or audio disto
 On a Wayland desktop, capture the focused run through a temporary project-local ydotool keyboard:
 
 ```bash
+deck_tools/capture_second_son.sh game
 deck_tools/capture_second_son.sh overlay
 ```
 
-The helper shuts the temporary input daemon down immediately after sending shadPS4's Alt+F12
-shortcut. X11 sessions continue to use `xdotool`.
+`game` sends shadPS4's F12 game-only capture; `overlay` sends Alt+F12 and includes emulator overlays.
+The helper shuts the temporary input daemon down immediately after the key chord. X11 sessions
+continue to use `xdotool`.
 
 Create a controlled cold/warm pipeline pair without touching the live Steam cache. The cold run
 starts with no title cache; the warm run copies only the cold run's generated cache while still

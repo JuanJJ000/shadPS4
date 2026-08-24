@@ -114,6 +114,7 @@ private:
     std::mutex mutex;
     VideoOutPort main_port{};
     u32 cadence_stats_interval_seconds{};
+    u32 screenshot_after_seconds{};
     std::jthread present_thread;
     std::queue<Request> requests;
 };

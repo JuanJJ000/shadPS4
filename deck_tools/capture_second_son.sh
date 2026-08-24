@@ -7,7 +7,7 @@ set -euo pipefail
 mode="${1:-overlay}"
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-send_wayland_key() {
+send_wayland_key() (
   if ! command -v ydotool >/dev/null 2>&1 || ! command -v ydotoold >/dev/null 2>&1; then
     echo "Wayland capture needs the existing ydotool and ydotoold commands" >&2
     return 1
@@ -22,14 +22,13 @@ send_wayland_key() {
     --mouse-off >/dev/null 2>&1) &
   daemon_pid=$!
   cleanup_ydotool() {
-    trap - RETURN
     kill "${daemon_pid}" 2>/dev/null || true
     wait "${daemon_pid}" 2>/dev/null || true
     if [[ -S "${socket_absolute}" ]]; then
       unlink "${socket_absolute}"
     fi
   }
-  trap cleanup_ydotool RETURN
+  trap cleanup_ydotool EXIT
 
   for _ in {1..20}; do
     [[ -S "${socket_absolute}" ]] && break
@@ -43,7 +42,9 @@ send_wayland_key() {
   # Give the compositor time to register the ephemeral virtual keyboard.
   sleep 0.5
   (cd "${repo_dir}" && YDOTOOL_SOCKET="${socket}" ydotool key "$@")
-}
+  # Keep the uinput device alive until the compositor has consumed the queued release event.
+  sleep 0.25
+)
 
 send_key() {
   if [[ "${XDG_SESSION_TYPE:-}" == "wayland" ]]; then
@@ -51,6 +52,7 @@ send_key() {
   else
     export DISPLAY="${DISPLAY:-:1}"
     case "${mode}" in
+      game) xdotool key --clearmodifiers F12 ;;
       overlay) xdotool key --clearmodifiers alt+F12 ;;
       gamescope) xdotool key --clearmodifiers super+s ;;
     esac
@@ -58,6 +60,10 @@ send_key() {
 }
 
 case "${mode}" in
+  game)
+    # Linux input key code: F12 (game-only screenshot).
+    send_key 88:1 88:0
+    ;;
   overlay)
     # Linux input key codes: left Alt (56) + F12 (88).
     send_key 56:1 88:1 88:0 56:0
@@ -67,7 +73,7 @@ case "${mode}" in
     send_key 125:1 31:1 31:0 125:0
     ;;
   *)
-    echo "Usage: $0 [overlay|gamescope]" >&2
+    echo "Usage: $0 [game|overlay|gamescope]" >&2
     exit 2
     ;;
 esac

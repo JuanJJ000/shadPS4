@@ -13,6 +13,7 @@
 #include "core/libraries/videoout/videoout_error.h"
 #include "imgui/renderer/imgui_core.h"
 #include "video_core/amdgpu/liverpool.h"
+#include "video_core/renderdoc.h"
 #include "video_core/renderer_vulkan/vk_presenter.h"
 
 extern std::unique_ptr<Vulkan::Presenter> presenter;
@@ -69,11 +70,23 @@ VideoOutDriver::VideoOutDriver(u32 width, u32 height) {
                         stats_interval);
         }
     }
+    if (const char* screenshot_delay = std::getenv("SHADPS4_VIDEOOUT_SCREENSHOT_AFTER_SECONDS")) {
+        char* end = nullptr;
+        const auto parsed = std::strtoul(screenshot_delay, &end, 10);
+        if (end != screenshot_delay && *end == '\0' && parsed >= 1 && parsed <= 600) {
+            screenshot_after_seconds = static_cast<u32>(parsed);
+        } else {
+            LOG_WARNING(Lib_VideoOut,
+                        "Ignoring invalid VideoOut screenshot delay {}; expected 1 through 600 "
+                        "seconds",
+                        screenshot_delay);
+        }
+    }
     LOG_INFO(Lib_VideoOut,
              "Guest display initialized: resolution={}x{}, vblankFrequency={} Hz, "
-             "refreshRateCode={}, cadenceStatsInterval={} s",
+             "refreshRateCode={}, cadenceStatsInterval={} s, screenshotAfter={} s",
              width, height, vblank_frequency, main_port.resolution.refresh_rate,
-             cadence_stats_interval_seconds);
+             cadence_stats_interval_seconds, screenshot_after_seconds);
     present_thread = std::jthread([&](std::stop_token token) { PresentThread(token); });
 }
 
@@ -376,6 +389,7 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
     auto previous_stats_time = std::chrono::steady_clock::now();
     u64 previous_vblank_count = 0;
     u64 previous_guest_flip_count = 0;
+    bool screenshot_requested = false;
 
     const auto receive_request = [this] -> Request {
         std::scoped_lock lk{mutex};
@@ -439,6 +453,15 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
         }
 
         timer.End();
+
+        if (!screenshot_requested && screenshot_after_seconds != 0 &&
+            main_port.vblank_status.count >=
+                static_cast<u64>(EmulatorSettings.GetVblankFrequency()) * screenshot_after_seconds) {
+            VideoCore::RequestScreenshot(VideoCore::ScreenshotRequest::GameOnly);
+            screenshot_requested = true;
+            LOG_INFO(Lib_VideoOut, "Requested game-only screenshot after {} seconds",
+                     screenshot_after_seconds);
+        }
 
         if (cadence_stats_interval_seconds != 0) {
             const auto now = std::chrono::steady_clock::now();
