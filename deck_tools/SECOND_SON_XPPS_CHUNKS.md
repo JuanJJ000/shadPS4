@@ -48,6 +48,10 @@ Only a chunk with exact observed tag ` DIC` receives additional structural parsi
 - every relative offset must be strictly inside the complete XPPS data region;
 - absolute offsets are computed from the already validated data start.
 
+The bound is deliberately the complete data region, not the selected high-kind-2 row. Real owned
+samples contain DIC offsets into other validated rows, including the high-kind-0 metadata row. The
+classifier records that cross-row observation without treating the target as an object boundary.
+
 No hash-to-name, offset-to-object, object-header, or resource-type meaning is admitted.
 
 ### Deterministic output

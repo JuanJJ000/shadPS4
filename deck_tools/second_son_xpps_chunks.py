@@ -77,8 +77,10 @@ def classify_chunks(
     structure = probe.probe_file(source)
     source_info = structure["input"]
     candidate_layout = structure["candidate_layout"]
-    assert isinstance(source_info, dict)
-    assert isinstance(candidate_layout, dict)
+    if not isinstance(source_info, dict):
+        raise probe.ProbeError("probe input metadata has an unexpected shape")
+    if not isinstance(candidate_layout, dict):
+        raise probe.ProbeError("probe candidate layout has an unexpected shape")
     observed_sha256 = str(source_info["sha256"])
     if observed_sha256 != expected_sha256:
         raise probe.ProbeError(
@@ -86,13 +88,15 @@ def classify_chunks(
         )
 
     rows = candidate_layout["payload_rows"]
-    assert isinstance(rows, list)
+    if not isinstance(rows, list):
+        raise probe.ProbeError("probe payload rows have an unexpected shape")
     if row_index >= len(rows):
         raise probe.ProbeError(
             f"row index {row_index} is outside the candidate table of {len(rows)} rows"
         )
     row = rows[row_index]
-    assert isinstance(row, dict)
+    if not isinstance(row, dict):
+        raise probe.ProbeError("selected probe row has an unexpected shape")
     kind_word = int(row["kind_word"])
     kind_class = kind_word >> 16
     kind_flags = kind_word & 0xFFFF
@@ -151,6 +155,7 @@ def classify_chunks(
                 count, reserved = struct.unpack(
                     "<II", _read_exact(stream, 8, "DIC count/reserved")
                 )
+                # Enforce the population budget before deriving any count-sized value.
                 if count > max_dic_entries - total_dic_entries:
                     raise probe.ProbeError(
                         f"DIC population exceeds {max_dic_entries} total entries"
@@ -170,10 +175,6 @@ def classify_chunks(
                             f"DIC entry {entry_index} offset exceeds the data region"
                         )
                     absolute_offset = data_start + relative_offset
-                    if absolute_offset >= source_size:
-                        raise probe.ProbeError(
-                            f"DIC entry {entry_index} absolute offset exceeds the source"
-                        )
                     entries.append(
                         {
                             "absolute_offset": absolute_offset,

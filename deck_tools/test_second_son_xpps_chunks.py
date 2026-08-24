@@ -188,6 +188,12 @@ class SecondSonXppsChunksTests(unittest.TestCase):
             with self.assertRaisesRegex(probe.ProbeError, "source changed"):
                 self.classify()
 
+    def test_malformed_probe_shape_is_refused_without_asserts(self) -> None:
+        malformed = {"input": [], "candidate_layout": {}}
+        with mock.patch.object(probe, "probe_file", return_value=malformed):
+            with self.assertRaisesRegex(probe.ProbeError, "unexpected shape"):
+                self.classify()
+
 
 if __name__ == "__main__":
     unittest.main()
