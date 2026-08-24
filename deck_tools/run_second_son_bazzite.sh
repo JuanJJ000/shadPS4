@@ -192,6 +192,8 @@ set -e
 
 echo "${exit_status}" >"${run_dir}/evidence/emulator-exit-status.txt"
 snapshot_live "${run_dir}/evidence/live-after.sha256"
+# `cmp` is the condition of this `if`, so Bash deliberately exempts its nonzero result from
+# `errexit`; a mismatch reaches the evidence-producing else branch below.
 if cmp "${run_dir}/evidence/live-before.sha256" "${run_dir}/evidence/live-after.sha256" >/dev/null; then
   echo "true" >"${run_dir}/evidence/live-profile-unchanged.txt"
 else
