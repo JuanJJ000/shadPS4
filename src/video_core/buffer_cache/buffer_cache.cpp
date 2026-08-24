@@ -66,8 +66,9 @@ BufferCache::BufferCache(const Vulkan::Instance& instance_, Vulkan::Scheduler& s
         if (value == "1") {
             spinlock_stats_enabled = precise_readback_stats_enabled;
             if (!precise_readback_stats_enabled) {
-                LOG_WARNING(Render_Vulkan,
-                            "Ignoring SpinLock statistics because readback statistics are disabled");
+                LOG_WARNING(
+                    Render_Vulkan,
+                    "Ignoring SpinLock statistics because readback statistics are disabled");
             }
         } else if (value != "0" && !value.empty()) {
             LOG_WARNING(Render_Vulkan,
@@ -411,8 +412,7 @@ void BufferCache::RecordPreciseReadbackStats(VAddr device_addr, u64 size, bool i
     precise_readback_guest_draws_before_readback += sample.guest_draws_before_readback;
     precise_readback_guest_dispatches_before_readback += sample.guest_dispatches_before_readback;
     precise_readback_empty_guest_work_readbacks +=
-        (precise_readback_guest_work_submit_budget != 0 ||
-         precise_readback_gpu_envelope_enabled) &&
+        (precise_readback_guest_work_submit_budget != 0 || precise_readback_gpu_envelope_enabled) &&
         sample.guest_draws_before_readback == 0 && sample.guest_dispatches_before_readback == 0;
     precise_readback_early_submit_count += sample.early_submit_count;
     precise_readback_early_submit_draws += sample.early_submit_draws;
@@ -825,17 +825,15 @@ void BufferCache::LogPreciseReadbackStats() {
             "fields=acquisitions/contended/spins/max_spins/try_attempts/try_failures/yields",
             generic.acquisitions, generic.contended_acquisitions, generic.spin_iterations,
             generic.maximum_spin_iterations, generic.try_attempts, generic.try_failures,
-            generic.yield_calls,
-            page.acquisitions, page.contended_acquisitions, page.spin_iterations,
-            page.maximum_spin_iterations, page.try_attempts, page.try_failures, page.yield_calls,
-            region.acquisitions, region.contended_acquisitions, region.spin_iterations,
-            region.maximum_spin_iterations, region.try_attempts, region.try_failures,
-            region.yield_calls,
-            slab.acquisitions, slab.contended_acquisitions, slab.spin_iterations,
-            slab.maximum_spin_iterations, slab.try_attempts, slab.try_failures, slab.yield_calls,
-            sleepq.acquisitions, sleepq.contended_acquisitions, sleepq.spin_iterations,
-            sleepq.maximum_spin_iterations, sleepq.try_attempts, sleepq.try_failures,
-            sleepq.yield_calls);
+            generic.yield_calls, page.acquisitions, page.contended_acquisitions,
+            page.spin_iterations, page.maximum_spin_iterations, page.try_attempts,
+            page.try_failures, page.yield_calls, region.acquisitions, region.contended_acquisitions,
+            region.spin_iterations, region.maximum_spin_iterations, region.try_attempts,
+            region.try_failures, region.yield_calls, slab.acquisitions, slab.contended_acquisitions,
+            slab.spin_iterations, slab.maximum_spin_iterations, slab.try_attempts,
+            slab.try_failures, slab.yield_calls, sleepq.acquisitions, sleepq.contended_acquisitions,
+            sleepq.spin_iterations, sleepq.maximum_spin_iterations, sleepq.try_attempts,
+            sleepq.try_failures, sleepq.yield_calls);
     }
 
     precise_readback_requests = 0;
@@ -927,9 +925,8 @@ BufferCache::ReadbackDownloadSample BufferCache::DownloadBufferMemory(Buffer& bu
     const auto cmdbuf = scheduler.CommandBuffer();
     const bool measure_gpu_copy =
         measure_finish && static_cast<bool>(precise_readback_gpu_timestamp_pool);
-    const bool measure_gpu_envelope =
-        measure_finish && precise_readback_gpu_envelope_enabled &&
-        scheduler.MarkCommandBufferReadbackStart();
+    const bool measure_gpu_envelope = measure_finish && precise_readback_gpu_envelope_enabled &&
+                                      scheduler.MarkCommandBufferReadbackStart();
     if (measure_gpu_copy) {
         cmdbuf.resetQueryPool(*precise_readback_gpu_timestamp_pool, 0, 2);
         cmdbuf.writeTimestamp2(vk::PipelineStageFlagBits2::eAllCommands,
