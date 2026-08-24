@@ -228,23 +228,20 @@ void StreamBuffer::Commit() {
     }
 
     offset += mapped_size;
-    if (current_watch_cursor != 0 &&
-        current_watches[current_watch_cursor].tick == scheduler->CurrentTick()) {
-        current_watches[current_watch_cursor].upper_bound = offset;
-        return;
-    }
-
-    if (current_watch_cursor + 1 >= current_watches.size()) {
+    const u64 current_tick = scheduler->CurrentTick();
+    auto result = Detail::RecordStreamBufferWatch(current_watches, current_watch_cursor,
+                                                  current_tick, offset);
+    if (result == Detail::StreamBufferWatchResult::Full) {
         // Ensure that there are enough watches.
         ReserveWatches(current_watches, WATCHES_RESERVE_CHUNK);
+        result = Detail::RecordStreamBufferWatch(current_watches, current_watch_cursor,
+                                                 current_tick, offset);
+        ASSERT(result == Detail::StreamBufferWatchResult::Appended);
     }
-
-    auto& watch = current_watches[current_watch_cursor++];
-    watch.upper_bound = offset;
-    watch.tick = scheduler->CurrentTick();
 }
 
-void StreamBuffer::ReserveWatches(std::vector<Watch>& watches, std::size_t grow_size) {
+void StreamBuffer::ReserveWatches(std::vector<Detail::StreamBufferWatch>& watches,
+                                  std::size_t grow_size) {
     watches.resize(watches.size() + grow_size);
 }
 
