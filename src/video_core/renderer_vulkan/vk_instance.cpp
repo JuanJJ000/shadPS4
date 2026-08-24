@@ -703,14 +703,13 @@ void Instance::CollectImageFormatInfo() {
                                                         vk::ImageUsageFlagBits::eSampled;
     constexpr vk::ImageCreateFlags compressed_1d_flags =
         vk::ImageCreateFlagBits::eMutableFormat | vk::ImageCreateFlagBits::eExtendedUsage;
-    constexpr std::array compressed_1d_formats{
-        vk::Format::eBc1RgbaUnormBlock, vk::Format::eBc1RgbaSrgbBlock, vk::Format::eBc3UnormBlock,
-        vk::Format::eBc3SrgbBlock,      vk::Format::eBc4UnormBlock,    vk::Format::eBc5UnormBlock,
-    };
-    supports_compressed_1d_images =
-        std::ranges::all_of(compressed_1d_formats, [this](const vk::Format format) {
+    supports_compressed_1d_images = std::ranges::all_of(
+        LiverpoolToVK::SurfaceFormats(), [this](const auto& surface_format) {
+            if (!AmdGpu::IsBlockCoded(surface_format.data_format)) {
+                return true;
+            }
             const vk::PhysicalDeviceImageFormatInfo2 format_info{
-                .format = format,
+                .format = surface_format.vk_format,
                 .type = vk::ImageType::e1D,
                 .tiling = vk::ImageTiling::eOptimal,
                 .usage = compressed_1d_usage,

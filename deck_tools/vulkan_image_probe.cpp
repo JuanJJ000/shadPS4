@@ -131,9 +131,19 @@ int main() {
 
         for (const auto [format, name] :
              std::array{std::pair{VK_FORMAT_BC1_RGBA_UNORM_BLOCK, std::string_view{"BC1_UNORM"}},
+                        std::pair{VK_FORMAT_BC1_RGBA_SRGB_BLOCK, std::string_view{"BC1_SRGB"}},
+                        std::pair{VK_FORMAT_BC2_UNORM_BLOCK, std::string_view{"BC2_UNORM"}},
+                        std::pair{VK_FORMAT_BC2_SRGB_BLOCK, std::string_view{"BC2_SRGB"}},
                         std::pair{VK_FORMAT_BC3_UNORM_BLOCK, std::string_view{"BC3_UNORM"}},
+                        std::pair{VK_FORMAT_BC3_SRGB_BLOCK, std::string_view{"BC3_SRGB"}},
                         std::pair{VK_FORMAT_BC4_UNORM_BLOCK, std::string_view{"BC4_UNORM"}},
-                        std::pair{VK_FORMAT_BC5_UNORM_BLOCK, std::string_view{"BC5_UNORM"}}}) {
+                        std::pair{VK_FORMAT_BC4_SNORM_BLOCK, std::string_view{"BC4_SNORM"}},
+                        std::pair{VK_FORMAT_BC5_UNORM_BLOCK, std::string_view{"BC5_UNORM"}},
+                        std::pair{VK_FORMAT_BC5_SNORM_BLOCK, std::string_view{"BC5_SNORM"}},
+                        std::pair{VK_FORMAT_BC6H_UFLOAT_BLOCK, std::string_view{"BC6_UFLOAT"}},
+                        std::pair{VK_FORMAT_BC6H_SFLOAT_BLOCK, std::string_view{"BC6_SFLOAT"}},
+                        std::pair{VK_FORMAT_BC7_UNORM_BLOCK, std::string_view{"BC7_UNORM"}},
+                        std::pair{VK_FORMAT_BC7_SRGB_BLOCK, std::string_view{"BC7_SRGB"}}}) {
             for (const auto [type, type_name] :
                  std::array{std::pair{VK_IMAGE_TYPE_1D, std::string_view{"1D"}},
                             std::pair{VK_IMAGE_TYPE_2D, std::string_view{"2D"}}}) {

@@ -17,19 +17,20 @@ dimensionality on devices that cannot represent the guest resource natively.
 
 `deck_tools/vulkan_image_probe.cpp` queries the Cartesian product of:
 
-- BC1, BC3, BC4, and BC5;
+- every BC format shadPS4 maps: BC1/BC2/BC3/BC4/BC5/BC6/BC7, including SRGB, signed,
+  unsigned, and float variants as applicable;
 - 1D and 2D image types;
 - mutable format on/off;
 - extended usage on/off;
 - block-compatible views on/off; and
 - storage usage on/off.
 
-On an RTX 3090 with NVIDIA 580.159.04, all 64 compressed 1D combinations returned
+On an RTX 3090 with NVIDIA 580.159.04, all 224 compressed 1D combinations returned
 `VK_ERROR_FORMAT_NOT_SUPPORTED`. Every corresponding 2D format was supported once its requested
-usage and flags were valid. The complete 270-line local oracle receipt has SHA-256:
+usage and flags were valid. The complete 910-line local oracle receipt has SHA-256:
 
 ```text
-42aef0a4099492b7e0f1f3847bc2941e70914cc4141ff634146f1fd1ac19ad88
+0a97d95cfb13b9e0feadf897e9442ad6ecaa2be650ef61a984a275e8f9893af8
 ```
 
 Two consecutive runs produced that exact hash. The receipt is local evidence and is not committed
@@ -38,9 +39,10 @@ to stable size/type fields; live VRAM usage would make the capability receipt no
 
 ## Runtime contract
 
-At device initialization, shadPS4 queries BC1 UNORM/SRGB, BC3 UNORM/SRGB, BC4, and BC5 using the
-irreducible transfer-source, transfer-destination, and sampled usage plus the normal mutable and
-extended-usage flags.
+At device initialization, shadPS4 queries every block-compressed entry in its canonical surface
+format table using the irreducible transfer-source, transfer-destination, and sampled usage plus
+the normal mutable and extended-usage flags. Keeping the capability loop coupled to that table
+prevents a future BC format mapping from silently falling outside the fallback contract.
 
 - If all queries succeed, the existing native compressed 1D path is unchanged.
 - If any query fails, shader resource tracking marks only block-compressed guest 1D resources for
