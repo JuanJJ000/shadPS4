@@ -72,4 +72,28 @@ overlay rollback path are proven independently.
 
 ## Usage
 
-Implementation and exact commands are intentionally queued behind this contract.
+Run the focused tests:
+
+```sh
+python3 -B -m unittest -v deck_tools/test_second_son_xpps_extract.py
+```
+
+Extract one selected row only when the whole-file hash matches:
+
+```sh
+deck_tools/second_son_xpps_extract.py /path/to/owned/file.xpps \
+  --expected-sha256 64-lowercase-hex-characters \
+  --row 2 \
+  --output /existing/output/directory/new-row.bin
+```
+
+The first owned extraction selected row 2 of `graffiti_a8_family.xpps`. The source retained
+SHA-256 `254c56a776b3c0317007e07d22a293404103c79ccc28c0f64a5c7f6b9a5588c7` before and after.
+The new 3,104-byte output has SHA-256
+`b29e9776b3068bdf5030ca3eeae6c2024ccbfe9ff0fdab09d1da7ccf212eab1b`. Its bounded bytes begin
+with the observed tag `KNLI` and contain ` DIC` at relative offset `0x510`; those observations do
+not establish resource semantics.
+
+A separate row-0 observation contains Havok 2013 class/type labels, which suggests that filenames
+such as `graffiti_*` may package multiple resource families. It is evidence against treating a
+whole XPPS or every row as a texture, not a decoded type claim.
