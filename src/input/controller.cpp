@@ -172,11 +172,14 @@ void GameController::StartTouchpadSwipe(TouchpadSwipeDirection direction) {
     touchpad_swipe_active = true;
 
     auto& touch = m_state.touchpad[0];
+    const bool no_touch_active = !touch.state && !m_state.touchpad[1].state;
     if (!touch.state) {
         touch.ID = m_next_touch_id;
         m_next_touch_id = m_next_touch_id == 127 ? 1 : m_next_touch_id + 1;
     }
-    m_touch_down_timestamp = timestamp;
+    if (no_touch_active) {
+        m_touch_down_timestamp = timestamp;
+    }
     ApplyTouchpadSwipeLocked(timestamp);
     PushStateLocked(timestamp);
     LOG_INFO(Input, "Controller touchpad swipe started ({})", std::to_underlying(direction));
