@@ -298,12 +298,9 @@ void GameController::ApplyMotionInputLocked(u64 timestamp) {
         const bool auto_sweep =
             motion_override == 4 && std::abs(stick_x) < 0.05f && std::abs(stick_y) < 0.05f;
         const float aim_gyro[3] = {
-            raw_gyro_buf[0] + stick_y * 0.6f +
-                (auto_sweep ? std::sin(time * 1.4f) * 0.45f : 0.0f),
-            raw_gyro_buf[1] + stick_x * 0.18f +
-                (auto_sweep ? std::sin(time * 0.8f) * 0.08f : 0.0f),
-            raw_gyro_buf[2] + stick_y * 0.6f +
-                (auto_sweep ? std::cos(time * 1.1f) * 0.45f : 0.0f),
+            raw_gyro_buf[0] + stick_y * 0.6f + (auto_sweep ? std::sin(time * 1.4f) * 0.45f : 0.0f),
+            raw_gyro_buf[1] + stick_x * 0.18f + (auto_sweep ? std::sin(time * 0.8f) * 0.08f : 0.0f),
+            raw_gyro_buf[2] + stick_y * 0.6f + (auto_sweep ? std::cos(time * 1.1f) * 0.45f : 0.0f),
         };
         constexpr float sideways_accel[3] = {-9.81f, 0.0f, 0.0f};
         std::memcpy(gyro_buf, aim_gyro, sizeof(gyro_buf));
