@@ -6,8 +6,10 @@ SPDX-License-Identifier: GPL-2.0-or-later
 # inFAMOUS Second Son on Bazzite
 
 `run_second_son_bazzite.sh` creates a disposable shadPS4 user profile for a direct-binary
-Linux capture. It copies the live save and warmed CUSA00223 pipeline cache, then writes only to
-the copy. The version-controlled title and input profiles are installed after seeding.
+Linux capture. It copies the live save and a compatible CUSA00223 pipeline cache, then writes only
+to the copy. The first run uses the live cache as a read-only fallback; a clean capture promotes its
+isolated cache into `scratch/second-son-bazzite/warm-cache`, and later runs prefer that project-local
+cache. The version-controlled title and input profiles are installed after seeding.
 
 The important distinction is that `XDG_DATA_HOME` selects shadPS4's user/configuration root.
 `--override-root` selects the guest game mount and is not a configuration-isolation option.
@@ -123,7 +125,15 @@ SECOND_SON_CACHE_SEED_ROOT="${cold_run}/xdg-data/shadPS4" SECOND_SON_PIPELINE_TR
 
 Each traced run writes `evidence/pipeline-cache-summary.txt` and a hash-only event log. The trace
 changes only the disposable profile's log filter; it does not change rendering, readback, or image
-quality settings. `SECOND_SON_CACHE_SEED_ROOT` never replaces the live save source.
+quality settings. `SECOND_SON_CACHE_SEED_ROOT` never replaces the live save source. The manifest
+records whether selection was explicit, project-local, or the live read-only fallback, while
+`evidence/warm-cache-promotion.json` records every promotion or skip decision. Promotion requires
+a clean emulator exit, an unchanged live profile, `profile.bin`, and at least one pipeline key; it
+is atomic and does not replace a larger compatible cache unless shadPS4 reported regeneration.
+
+Set `SECOND_SON_REFRESH_WARM_CACHE=0` to leave the project-local cache unchanged during an ablation.
+`SECOND_SON_WARM_CACHE_ROOT` selects a different project-local cache root when captures use a custom
+data layout. Neither option authorizes writes to the live Steam profile.
 
 Run the guarded, opt-in 01.00 motion-blur exposure experiment:
 
@@ -144,6 +154,7 @@ SECOND_SON_CAPTURE_SECONDS=0 deck_tools/run_second_son_bazzite.sh
 
 Override `SECOND_SON_BINARY`, `SECOND_SON_EBOOT`, `SECOND_SON_LIVE_USER_ROOT`, or
 `SECOND_SON_BAZZITE_DATA_ROOT` for a different local layout. Use
-`SECOND_SON_CACHE_SEED_ROOT` only to seed a known prior capture's cache. A captured run is accepted
-as title-configured only when `evidence/title-config-proof.txt` includes
+`SECOND_SON_CACHE_SEED_ROOT` only to seed a known prior capture's cache; normal captures reuse the
+compatible project-local warm cache automatically. A captured run is accepted as title-configured
+only when `evidence/title-config-proof.txt` includes
 `Game-specific config used: true`.

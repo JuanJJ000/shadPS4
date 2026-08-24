@@ -15,7 +15,9 @@ capture_seconds="${SECOND_SON_CAPTURE_SECONDS:-120}"
 validate_only="${SECOND_SON_VALIDATE_ONLY:-0}"
 readback_work_budget="${SECOND_SON_READBACK_WORK_BUDGET:-profile}"
 patch_xml="${SECOND_SON_PATCH:-}"
-cache_seed_root="${SECOND_SON_CACHE_SEED_ROOT:-${live_user_root}}"
+cache_seed_root_override="${SECOND_SON_CACHE_SEED_ROOT:-}"
+warm_cache_root="${SECOND_SON_WARM_CACHE_ROOT:-${data_root}/warm-cache}"
+refresh_warm_cache="${SECOND_SON_REFRESH_WARM_CACHE:-1}"
 skip_cache_seed="${SECOND_SON_SKIP_CACHE_SEED:-0}"
 pipeline_trace="${SECOND_SON_PIPELINE_TRACE:-0}"
 internal_resolution="${SECOND_SON_INTERNAL_RESOLUTION:-profile}"
@@ -36,11 +38,12 @@ if [[ ! "${capture_seconds}" =~ ^(0|[1-9][0-9]*)$ ]]; then
   exit 2
 fi
 
-case "${validate_only}:${skip_cache_seed}:${pipeline_trace}" in
-  0:0:0|0:0:1|0:1:0|0:1:1|1:0:0|1:0:1|1:1:0|1:1:1) ;;
+case "${validate_only}:${skip_cache_seed}:${pipeline_trace}:${refresh_warm_cache}" in
+  0:0:0:0|0:0:0:1|0:0:1:0|0:0:1:1|0:1:0:0|0:1:0:1|0:1:1:0|0:1:1:1|\
+  1:0:0:0|1:0:0:1|1:0:1:0|1:0:1:1|1:1:0:0|1:1:0:1|1:1:1:0|1:1:1:1) ;;
   *)
     echo "SECOND_SON_VALIDATE_ONLY, SECOND_SON_SKIP_CACHE_SEED, and" \
-      "SECOND_SON_PIPELINE_TRACE must each be 0 or 1" >&2
+      "SECOND_SON_PIPELINE_TRACE and SECOND_SON_REFRESH_WARM_CACHE must each be 0 or 1" >&2
     exit 2
     ;;
 esac
@@ -82,12 +85,23 @@ esac
 for required in "${binary}" "${eboot}" \
   "${repo_dir}/deck_tools/second_son_bazzite_config.json" \
   "${repo_dir}/deck_tools/second_son_bazzite_input.ini" \
-  "${repo_dir}/deck_tools/second_son_bazzite_profile.py"; do
+  "${repo_dir}/deck_tools/second_son_bazzite_profile.py" \
+  "${repo_dir}/deck_tools/second_son_warm_cache.py"; do
   if [[ ! -f "${required}" ]]; then
     echo "Missing required file: ${required}" >&2
     exit 1
   fi
 done
+
+readarray -t cache_seed_selection < <(
+  python3 "${repo_dir}/deck_tools/second_son_warm_cache.py" select \
+    --explicit-root "${cache_seed_root_override}" \
+    --warm-cache-root "${warm_cache_root}" \
+    --live-user-root "${live_user_root}" \
+    --title-id "${title_id}"
+)
+cache_seed_root="${cache_seed_selection[0]}"
+cache_seed_source="${cache_seed_selection[1]}"
 
 if [[ -n "${patch_xml}" ]]; then
   if [[ ! -f "${patch_xml}" ]]; then
@@ -238,7 +252,10 @@ EOF
   echo "isolated_user_root=${shad_user}"
   echo "capture_seconds=${capture_seconds}"
   echo "cache_seed_root=${cache_seed_root}"
+  echo "cache_seed_source=${cache_seed_source}"
   echo "cache_seed_skipped=$([[ "${skip_cache_seed}" == "1" ]] && echo true || echo false)"
+  echo "warm_cache_root=${warm_cache_root}"
+  echo "warm_cache_refresh=$([[ "${refresh_warm_cache}" == "1" ]] && echo true || echo false)"
   echo "pipeline_trace=$([[ "${pipeline_trace}" == "1" ]] && echo true || echo false)"
   echo "precise_readback_work_budget=${readback_work_budget}"
   echo "internal_resolution=${internal_resolution}"
@@ -420,6 +437,51 @@ if [[ "${pipeline_trace}" == "1" ]]; then
   } >"${run_dir}/evidence/pipeline-cache-summary.txt"
   grep -E 'Preloaded [0-9]+ pipelines|Compiling (graphics|compute) pipeline|Regenerating the cache' \
     "${run_dir}/console.log" >"${run_dir}/evidence/pipeline-cache-events.log" || true
+fi
+
+warm_cache_receipt="${run_dir}/evidence/warm-cache-promotion.json"
+live_profile_unchanged="$(<"${run_dir}/evidence/live-profile-unchanged.txt")"
+if [[ "${refresh_warm_cache}" == "1" && "${exit_status}" == "0" &&
+      "${live_profile_unchanged}" == "true" ]]; then
+  promote_args=(
+    python3 "${repo_dir}/deck_tools/second_son_warm_cache.py" promote
+    --isolated-user-root "${shad_user}"
+    --warm-cache-root "${warm_cache_root}"
+    --title-id "${title_id}"
+    --receipt "${warm_cache_receipt}"
+  )
+  if grep -q 'Regenerating the cache' "${run_dir}/console.log"; then
+    promote_args+=(--regenerated)
+  fi
+  "${promote_args[@]}" || true
+else
+  python3 - "${warm_cache_receipt}" "${refresh_warm_cache}" "${exit_status}" \
+    "${live_profile_unchanged}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+status = "disabled" if sys.argv[2] == "0" else "skipped"
+if status == "disabled":
+    reason = "refresh-disabled"
+elif sys.argv[4] != "true":
+    reason = "live-profile-changed"
+else:
+    reason = "emulator-exit-not-clean"
+Path(sys.argv[1]).write_text(
+    json.dumps(
+        {
+            "status": status,
+            "reason": reason,
+            "emulator_exit_status": int(sys.argv[3]),
+            "live_profile_unchanged": sys.argv[4] == "true",
+        },
+        indent=2,
+    )
+    + "\n",
+    encoding="utf-8",
+)
+PY
 fi
 
 if [[ "${capture_seconds}" != "0" && ("${exit_status}" == "124" || "${exit_status}" == "143") ]]; then
