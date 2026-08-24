@@ -9,6 +9,34 @@ This is the living record for the local Steam Deck-focused shadPS4 fork. An item
 improvement until it has been measured on the user's own legally dumped game in a visible Gamescope
 session.
 
+## Atomic VMA reader lock milestone — issue #148 — 2026-08-24
+
+### RR — Really Readable rundown
+
+- **What happened — Proven:** an exact warmed GpuComm profile attributed 274 of 297
+  `pthread_mutex_unlock` samples to the read-only `StreamBuffer::Copy` fallback. The lock was the
+  guest virtual-memory map's reader path, which entered a host mutex even without contention.
+  Commit `17859ca0` gives only that memory-manager lock an atomic reader fast path while preserving
+  writer exclusion, reader-first admission, recursive readers, try-lock behavior, and the existing
+  timed guest pthread implementation.
+- **What it means — Proven:** in the matched candidate profile, GpuComm
+  `pthread_mutex_unlock` residency fell from 17.00% (297/1,747 samples) to 1.57% (35/2,232), a
+  90.8% normalized reduction. The focused lock suite passes 5/5, the existing Deck suite passes
+  142/142, sustained 8-reader/1-writer stress found zero invariant failures, and the portable
+  optimized Linux executable builds successfully.
+- **Performance boundary — Proven:** the exact alternating warmed bracket averaged 28.965 versus
+  28.610 guest FPS after load (+1.24%) and 38.195 versus 38.700 ms mean frame time (-1.30%). The
+  final tails were 27.95 versus 27.96 FPS and effectively identical in mean and p95 frame time.
+  This is retained as a CPU-efficiency fix, not a material end-to-end FPS claim.
+- **Why — Inference:** uncontended virtual-memory readers no longer serialize through a host
+  mutex and condition-variable protocol. The small post-load difference is directionally
+  consistent with that reduced overhead, but it remains close enough to run variance that the
+  profiler evidence is the primary acceptance signal.
+- **What happens next — Unknown:** the candidate profile now places `StreamBuffer::Commit` at
+  14.38% of GpuComm samples. Its exact inline/assembly attribution must be proven before proposing
+  another change. Traversal, combat, long-session, controller/QTE, audio, game-speed, and texture
+  activation gates remain open.
+
 ## Bazzite fidelity ceiling milestone — 2026-08-24
 
 ### RR — Really Readable rundown
