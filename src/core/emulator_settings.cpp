@@ -615,6 +615,7 @@ bool EmulatorSettingsImpl::TransferSettings() {
         setFromToml(s.null_gpu, gpu, "nullGpu");
         setFromToml(s.copy_gpu_buffers, gpu, "copyGPUBuffers");
         setFromToml(s.readbacks_mode, gpu, "readbacksMode");
+        setFromToml(s.readback_work_submit_budget, gpu, "readbackWorkSubmitBudget");
         setFromToml(s.readback_linear_images_enabled, gpu, "readbackLinearImages");
         setFromToml(s.direct_memory_access_enabled, gpu, "directMemoryAccess");
         setFromToml(s.dump_shaders, gpu, "dumpShaders");

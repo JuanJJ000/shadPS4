@@ -14,11 +14,25 @@ Validate paths and isolation without launching:
 SECOND_SON_VALIDATE_ONLY=1 deck_tools/run_second_son_bazzite.sh
 ```
 
-Capture two minutes with the default no-early-submit readback policy:
+Capture two minutes with the title profile's readback policy. The checked-in Bazzite profile selects
+a 128-operation non-blocking work-submit budget for CUSA00223; the global default remains disabled:
 
 ```bash
 SECOND_SON_CAPTURE_SECONDS=120 deck_tools/run_second_son_bazzite.sh
 ```
+
+Use an explicit control or calibration value without changing the profile:
+
+```bash
+SECOND_SON_READBACK_WORK_BUDGET=0 SECOND_SON_CAPTURE_SECONDS=120 \
+  deck_tools/run_second_son_bazzite.sh
+SECOND_SON_READBACK_WORK_BUDGET=256 SECOND_SON_CAPTURE_SECONDS=120 \
+  deck_tools/run_second_son_bazzite.sh
+```
+
+The launcher records `profile` when it defers to the game-specific setting and only exports
+`SHADPS4_PRECISE_READBACK_WORK_BUDGET` for an explicit override. This keeps normal Steam-profile
+behavior title-specific while preserving an exact A/B control.
 
 Create a controlled cold/warm pipeline pair without touching the live Steam cache. The cold run
 starts with no title cache; the warm run copies only the cold run's generated cache while still

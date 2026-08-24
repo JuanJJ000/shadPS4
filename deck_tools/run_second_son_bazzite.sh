@@ -13,7 +13,7 @@ live_user_root="${SECOND_SON_LIVE_USER_ROOT:-${XDG_DATA_HOME:-${HOME}/.local/sha
 data_root="${SECOND_SON_BAZZITE_DATA_ROOT:-${repo_dir}/scratch/second-son-bazzite}"
 capture_seconds="${SECOND_SON_CAPTURE_SECONDS:-120}"
 validate_only="${SECOND_SON_VALIDATE_ONLY:-0}"
-readback_work_budget="${SECOND_SON_READBACK_WORK_BUDGET:-0}"
+readback_work_budget="${SECOND_SON_READBACK_WORK_BUDGET:-profile}"
 patch_xml="${SECOND_SON_PATCH:-}"
 cache_seed_root="${SECOND_SON_CACHE_SEED_ROOT:-${live_user_root}}"
 skip_cache_seed="${SECOND_SON_SKIP_CACHE_SEED:-0}"
@@ -34,9 +34,9 @@ case "${validate_only}:${skip_cache_seed}:${pipeline_trace}" in
 esac
 
 case "${readback_work_budget}" in
-  0|32|64|128|256|512|1024|2048|4096) ;;
+  profile|0|32|64|128|256|512|1024|2048|4096) ;;
   *)
-    echo "SECOND_SON_READBACK_WORK_BUDGET must be zero or a power of two from 32 to 4096" >&2
+    echo "SECOND_SON_READBACK_WORK_BUDGET must be profile, zero, or a power of two from 32 to 4096" >&2
     exit 2
     ;;
 esac
@@ -227,8 +227,10 @@ launch_env=(
   "SHADPS4_READONLY_FORMATTED_BUFFER_LIMIT_MB=${SHADPS4_READONLY_FORMATTED_BUFFER_LIMIT_MB:-256}"
   "SHADPS4_PRECISE_READBACK_STATS=${SHADPS4_PRECISE_READBACK_STATS:-0}"
   "SHADPS4_PRECISE_READBACK_PHASE_TIMING=${SHADPS4_PRECISE_READBACK_PHASE_TIMING:-0}"
-  "SHADPS4_PRECISE_READBACK_WORK_BUDGET=${readback_work_budget}"
 )
+if [[ "${readback_work_budget}" != "profile" ]]; then
+  launch_env+=("SHADPS4_PRECISE_READBACK_WORK_BUDGET=${readback_work_budget}")
+fi
 
 ulimit -c 0
 set +e
@@ -254,7 +256,7 @@ fi
 
 title_log="${shad_user}/log/${title_id}.log"
 if [[ -f "${title_log}" ]]; then
-  rg -n "Game-specific config used|GPU readbacksMode|GPU vblankFrequency|GPU shouldCopyGPUBuffers|PipelineCache" "${title_log}" >"${run_dir}/evidence/title-config-proof.txt" || true
+  rg -n "Game-specific config used|GPU readbacksMode|GPU readbackWorkSubmitBudget|GPU vblankFrequency|GPU shouldCopyGPUBuffers|PipelineCache" "${title_log}" >"${run_dir}/evidence/title-config-proof.txt" || true
 fi
 
 if [[ -n "${patch_xml}" ]]; then

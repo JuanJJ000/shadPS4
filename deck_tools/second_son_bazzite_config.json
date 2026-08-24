@@ -14,6 +14,7 @@
     "rcas_attenuation": 0,
     "rcas_enabled": true,
     "readback_linear_images_enabled": false,
+    "readback_work_submit_budget": 128,
     "readbacks_mode": 2,
     "vblank_frequency": 60,
     "window_height": 1440,

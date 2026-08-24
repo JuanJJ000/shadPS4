@@ -9,6 +9,66 @@ This is the living record for the local Steam Deck-focused shadPS4 fork. An item
 improvement until it has been measured on the user's own legally dumped game in a visible Gamescope
 session.
 
+## Bazzite desktop integration milestone — 2026-08-24
+
+### RR — Really Readable rundown
+
+- **What happened — Proven:** the dedicated `second-son/perfect-bazzite` integration line now
+  contains merged PRs #133–#135: negotiated compressed-1D Vulkan fallback, safe pipeline-cache
+  regeneration, and phase-aware MangoHud evidence. A fully rendered 1920×1080 crash-site capture
+  proves the compressed fallback on the RTX 3090. A warm profile preloaded 636 pipelines and
+  compiled zero graphics, compute, or guest shaders during the measured gameplay phase.
+- **What it means:** remaining Bazzite performance work is no longer confounded by a corrupt
+  compressed-image path, stale pipeline cache, or startup-biased statistics. The game is not being
+  called flawless or complete.
+- **Why:** issue #136 isolated a large Precise-readback command-buffer backlog. In a matched
+  diagnostics-off comparison, a 128-operation non-blocking early-submit budget raised post-load
+  mean FPS from 18.10 to 21.98 and tail FPS from 16.23 to 20.35 while reducing median slow-phase
+  frame time from 66.65 ms to 49.99 ms.
+- **What happens next — Unknown:** the candidate needs a coherent optimized build plus visual,
+  traversal, combat, long-session, controller/QTE, audio, and clean-exit validation. 120 FPS and 8K
+  are aspirational stress targets, not current measured capabilities.
+
+### Current truth
+
+- Target host: Bazzite Linux, Ryzen 7 5800XT, RTX 3090 with 24 GB VRAM, and 63 GB RAM.
+- Current owned game version: v1.00; owned v1.05+/v1.07 testing remains open in issue #112.
+- PR #133 is merged and visually proven for the captured scene.
+- PR #134 is merged and warm-cache proven with 636 preloaded pipelines and zero measured runtime
+  shader compiles.
+- PR #135 is merged and makes post-load/tail comparisons explicit.
+- Issue #136 is active. Instrumented budgets 64, 128, and 256 all reached the same ~20.5–20.7 tail
+  FPS tier; 128 required 3,553 early submits versus 8,347 at 64.
+- The issue #136 shared-settings implementation now passes a coherent 2,284-action optimized Linux
+  build and links a complete executable against Fedora's runtime libraries. That build proof does
+  not replace the remaining exact-profile gameplay, controller/QTE, audio, and clean-exit gates.
+- The exact staged executable passed all 76 settings tests and all 131 `deck_tools` tests. In a
+  matched warm-cache Bazzite pair at the same loaded save, the title-profile value `128` raised
+  post-load mean FPS from 13.02 to 17.59 and tail mean FPS from 12.58 to 16.32 while reducing mean
+  post-load frame time from 87.61 ms to 62.32 ms. Both runs preloaded 638 pipelines, compiled zero
+  shaders or pipelines, and left the live Steam profile unchanged.
+- Synthetic spray/swipe helpers remain integrated. Full touchpad-direction and later-QTE coverage
+  is not yet proven.
+- Guarded XPPS probing, extraction, classification, DDS export, round-trip checking, and
+  receipt-gated overlay tooling exist. A meaningful replacement texture has not yet been visually
+  activated in gameplay.
+- Motion-blur/sharpness A/B remains tracked in issue #113. The controlled 720p/1080p/1440p/4K/8K
+  and high-refresh matrix is tracked in issue #137; umbrella performance work remains issue #108.
+
+### Next gates
+
+1. Finish issue #136 with one coherent implementation and the smallest sufficient complete Linux
+   validation.
+2. Test the exact candidate through the Steam-compatible profile path across traversal, combat,
+   longer play, controller/touch/QTE interactions, audio, and clean exit.
+3. Profile and reduce the remaining ~50 ms slow phase without lowering image quality.
+4. Execute issue #137's native resolution, scaling, anti-aliasing, sharpening, motion blur, and
+   higher-output-resolution matrix with screenshots and pacing evidence.
+5. Prove a safe meaningful texture replacement end to end and document the user workflow.
+
+The public wiki contains the complete tables, screenshot hash, Proven/Inference/Unknown boundaries,
+and links for issues #108/#112/#113/#136 and PRs #133–#135.
+
 ## Baseline
 
 - Started: 2026-08-20

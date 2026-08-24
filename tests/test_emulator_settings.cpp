@@ -283,6 +283,24 @@ TEST_F(EmulatorSettingsTest, ConfigModeDefaultResolvesGameSpecificWhenPresent) {
     EXPECT_TRUE(temp_settings->IsNeo());
 }
 
+TEST_F(EmulatorSettingsTest, ReadbackWorkSubmitBudgetDefaultsToDisabled) {
+    EXPECT_EQ(temp_settings->GetReadbackWorkSubmitBudget(), 0u);
+}
+
+TEST_F(EmulatorSettingsTest, ReadbackWorkSubmitBudgetSupportsPerGameOverride) {
+    temp_settings->SetReadbackWorkSubmitBudget(0u);
+    json game;
+    game["GPU"]["readback_work_submit_budget"] = 128;
+    WriteJson(GameConfig("CUSA00223"), game);
+
+    ASSERT_TRUE(temp_settings->Load("CUSA00223"));
+    temp_settings->SetConfigMode(ConfigMode::Default);
+    EXPECT_EQ(temp_settings->GetReadbackWorkSubmitBudget(), 128u);
+
+    temp_settings->SetConfigMode(ConfigMode::Global);
+    EXPECT_EQ(temp_settings->GetReadbackWorkSubmitBudget(), 0u);
+}
+
 // tests for global config.json file
 
 TEST_F(EmulatorSettingsTest, SaveCreatesConfigJson) {
@@ -789,8 +807,8 @@ TEST_F(EmulatorSettingsTest, DoubleGlobalLoadIsIdempotent) {
 
     auto f = std::make_shared<EmulatorSettingsImpl>();
     EmulatorSettingsImpl::SetInstance(f);
-    f->Load(""); // first — loads from disk
-    f->Load(""); // second — must not reset anything
+    f->Load(""); // first â€” loads from disk
+    f->Load(""); // second â€” must not reset anything
 
     EXPECT_TRUE(f->IsNeo());
     EXPECT_EQ(f->GetWindowWidth(), 2560u);
