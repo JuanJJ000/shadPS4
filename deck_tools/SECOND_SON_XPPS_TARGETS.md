@@ -65,9 +65,9 @@ bulk payload data are emitted.
 
 ### Failure behavior
 
-Inherited probe/classifier refusal, excess DIC population, target outside all rows, overlapping row
-ownership, incomplete predecessor/target window, malformed inherited report, source mutation, or
-I/O failure returns nonzero and emits no JSON report.
+Inherited probe/classifier refusal, an empty or excess DIC population, target outside all rows,
+overlapping row ownership, incomplete predecessor/target window, malformed inherited report,
+source mutation, or I/O failure returns nonzero and emits no JSON report.
 
 ### Acceptance tests
 
@@ -87,10 +87,35 @@ single field-layout hypothesis against descriptor ranges. A texture claim still 
 descriptor-to-texel relationship and a decoder that round-trips owned bytes. Injection remains
 blocked until byte-exact rebuild, isolated overlay activation, and rollback are separately proven.
 
+## Usage
+
+Run the focused tests:
+
+```sh
+python3 -B -m unittest -v deck_tools/test_second_son_xpps_targets.py
+```
+
+Fingerprint one owned source only when its complete hash matches:
+
+```sh
+deck_tools/second_son_xpps_targets.py /path/to/owned/file.xpps \
+  --expected-sha256 64-lowercase-hex-characters \
+  --row 2
+```
+
+The first guarded owned sample retained SHA-256
+`254c56a776b3c0317007e07d22a293404103c79ccc28c0f64a5c7f6b9a5588c7`. All 77 targets belong
+to validated row 0, all fixed windows are complete, and the entries use 15 opaque DIC hashes.
+
+The same tool accepted all 59 owned `graffiti_*.xpps` files: 5,708 entries, 5,708 targets in row
+0, and 16 opaque hashes across the family. Of the 5,708 immediate 16-byte predecessors, 5,366 are
+entirely zero, 341 contain four zero bytes, and one contains five. Several opaque hashes select a
+stable first 16-byte target pattern while others select many patterns. These are structural facts,
+not resource identities or boundaries.
+
 ## Non-claims
 
 The predecessor is not claimed to be an object header. DIC hashes are not names or types. Fixed
 windows are not object boundaries. Repeated 96-byte spacing is not a structure size. No fingerprint
 is a texture, mesh, shader, material, animation, or gameplay object until independent evidence
 establishes that meaning.
-
