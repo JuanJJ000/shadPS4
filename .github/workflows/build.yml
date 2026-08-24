@@ -46,6 +46,8 @@ jobs:
       run: python3 -B -m unittest deck_tools/test_second_son_xpps_eboot_type_names.py
     - name: Validate the Second Son XPPS BITMAP descriptor classifier
       run: python3 -B -m unittest deck_tools/test_second_son_xpps_bitmap_descriptors.py
+    - name: Validate the Second Son XPPS Thin1D roundtrip proof
+      run: python3 -B -m unittest deck_tools/test_second_son_xpps_thin1d_roundtrip.py
     - name: Validate the Second Son 01.00 patch guard
       run: python3 -B -m unittest deck_tools/test_second_son_v100_patch_guard.py
 
