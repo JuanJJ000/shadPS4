@@ -829,6 +829,26 @@ void ControllerOutput::FinalizeUpdate(u8 gamepad_index) {
                 controller->StartSprayAssist();
             }
             break;
+        case CONTROLLER_TOUCHPAD_SWIPE_UP:
+            if (new_button_state) {
+                controller->StartTouchpadSwipe(TouchpadSwipeDirection::Up);
+            }
+            break;
+        case CONTROLLER_TOUCHPAD_SWIPE_DOWN:
+            if (new_button_state) {
+                controller->StartTouchpadSwipe(TouchpadSwipeDirection::Down);
+            }
+            break;
+        case CONTROLLER_TOUCHPAD_SWIPE_LEFT:
+            if (new_button_state) {
+                controller->StartTouchpadSwipe(TouchpadSwipeDirection::Left);
+            }
+            break;
+        case CONTROLLER_TOUCHPAD_SWIPE_RIGHT:
+            if (new_button_state) {
+                controller->StartTouchpadSwipe(TouchpadSwipeDirection::Right);
+            }
+            break;
         default: // is a normal key (hopefully)
             controller->Button(SDLGamepadToOrbisButton(button), new_button_state);
             break;
