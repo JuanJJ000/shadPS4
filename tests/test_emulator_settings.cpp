@@ -12,6 +12,7 @@
 #include <gtest/gtest.h>
 #include <nlohmann/json.hpp>
 
+#include "common/logging/log.h"
 #include "common/path_util.h"
 #include "common/scm_rev.h"
 #include "core/emulator_settings.h"
@@ -205,6 +206,21 @@ TEST(SettingTest, NoGameSpecificDefaultAndGlobalAgree) {
     Setting<int> s{7};
     s.value = 7;
     EXPECT_EQ(s.get(ConfigMode::Default), s.get(ConfigMode::Global));
+}
+
+TEST_F(EmulatorSettingsTest, FilteredLogMessagesDoNotEvaluateArguments) {
+    auto logger = Common::Log::ALL_LOGGERS[Common::Log::Class::Config];
+    ASSERT_NE(logger, nullptr);
+    int evaluations = 0;
+
+    logger->set_level(spdlog::level::info);
+    LOG_DEBUG(Config, "Filtered argument evaluation {}", ++evaluations);
+    EXPECT_EQ(evaluations, 0);
+
+    logger->set_level(spdlog::level::debug);
+    LOG_DEBUG(Config, "Enabled argument evaluation {}", ++evaluations);
+    EXPECT_EQ(evaluations, 1);
+    logger->set_level(spdlog::level::info);
 }
 
 // tests for default settings
