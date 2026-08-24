@@ -93,3 +93,46 @@ Screenshot SHA-256 receipts:
   not integrated until PR #139 lands.
 
 No 4K, 8K, or 120 Hz profile is promoted to the normal Steam launch by this receipt.
+
+## Persistent host tiling shader cache — 2026-08-24, 5:31 PM CDT
+
+### RR — Really Readable rundown
+
+#### Proven
+
+- Issue #147 identified ten host tiling/detiling shaders that glslang rebuilt on every launch even
+  when all 676 guest pipelines were already warm. Commit
+  `a8f6e90dc3cb8b706a4368be818764b564ed0d32` stores their SPIR-V in the existing compatible
+  per-title shader database.
+- The key covers the complete GLSL source, Vulkan stage, and ordered define list. Cached data must
+  contain a valid SPIR-V 1.3 header; a missing or invalid entry falls back to glslang and is replaced.
+- The focused key/header suite passed 2/2 and the complete `deck_tools` suite passed 142/142. The
+  optimized portable Linux build used `-O2 -g -DNDEBUG -march=x86-64-v3` and linked successfully.
+- The exact candidate executable has SHA-256
+  `b2f3f71003aa23c416a21063d13326a6ce030ad210012e2769fcadc613c787ac`.
+- The cold isolated run `20260824-172613-247039` preloaded 676 guest pipelines, compiled zero guest
+  graphics/compute pipelines, regenerated no cache, compiled exactly ten host detilers, wrote ten
+  host SPIR-V files, exited 0, and left the live Steam profile unchanged.
+- The matching warm run `20260824-172745-281523` preloaded the same 676 guest pipelines, loaded all
+  ten host detilers, compiled none of them, regenerated no cache, exited 0, and left the live Steam
+  profile unchanged. Its performance-summary receipt has SHA-256
+  `423205cf8e68e07343a53d7bd21a5c7c684bb59c3f83e4f3c3c6f48ee93a6e74`.
+- A final 25-second clean-commit smoke, `20260824-173030-344213`, again loaded all ten entries with
+  zero host compiles and exited 0. Its pipeline summary has SHA-256
+  `730ddd5fefc78dab9865e00a8136e28d59cf3774091236e3c6e6b4a4d843bc25`.
+
+#### Inference
+
+- This removes deterministic glslang work and its first-use stalls after the first successful run.
+  It is a launch/first-use improvement, not a sustained-FPS optimization.
+- Cold and warm post-load means were 27.36 and 27.15 FPS. That small difference is normal run
+  variation and does not support a steady-state speed claim.
+
+#### Unknown / next gate
+
+- Interactive traversal, combat, touch/QTE behavior, audio, game speed, and long-session stability
+  remain the acceptance gates for the complete branch.
+- The USB controller is detected, but this controller still exposes no usable gyro or accelerometer
+  through SDL. Motion-dependent scenes therefore remain a separate input lane.
+- Texture replacement tools exist, but a meaningful replacement texture has not yet been visually
+  activated and accepted in gameplay.
