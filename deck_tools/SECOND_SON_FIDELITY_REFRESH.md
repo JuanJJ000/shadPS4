@@ -36,6 +36,18 @@ cache, and optimized Linux binary SHA-256
   energy after resizing to the host's 2560×1440 display. Across four static-heavy crops, the
   FSR+RCAS image measured about 1.3–2.1% higher. This is a directional sharpness measure, not a
   perceptual-quality score.
+- Issue #141 traced a filtered-logging hot path to 255,269 and 256,727 Linux
+  `pthread_getname_np` calls in two 27-second control runs. Gating `LOG_GENERIC` before argument
+  evaluation reduced both patched runs to 1,320 calls, a 99.48% reduction against the control
+  mean. All four runs exited status 0 and left the live Steam profile unchanged.
+- In the same A/B/A/B sequence, MangoHud's final-ten-second mean rose from 21.67 and 21.12 FPS in
+  the controls to 22.72 and 22.37 FPS in the candidates. The two-run averages are 21.395 versus
+  22.545 FPS, a replicated 5.38% improvement. Direct guest-flip cadence in the first A/B/A legs
+  changed from 20.774 / 22.289 / 20.996 FPS, or 6.72% above the mean of the two controls.
+- The exact-commit replication used commit `1f169375a180be331337fdee31d0e9048dd040b5`
+  and binary SHA-256 `b2daafb47298d930c75cb72100e883d4af0ad4853cdbfba65cda36a13c5f9407`.
+  The focused logging regression test, all 78 settings tests, and all 134 Deck-tool tests passed
+  locally on Linux.
 
 | Profile | Actual game buffer | Actual swapchain | Host refresh | Loaded guest flips | Peak VRAM | Peak GPU |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -57,6 +69,9 @@ Screenshot SHA-256 receipts:
 
 - Output scaling is not the cause of the loaded scene's low guest rate: 8K/120 leaves substantial
   GPU and VRAM headroom while unique game flips remain near 20/s.
+- Filtered log argument evaluation was a real CPU-side contributor in the serialized GPU command
+  lane. Removing it produced a repeatable gain, but the remaining roughly 21–23 FPS phase proves
+  that it was not the dominant bottleneck.
 - FSR EASU with RCAS attenuation 0 is the strongest current clarity candidate for this machine.
   It improves edge retention, but it cannot restore texture or geometry detail that is absent from
   the fixed 1920×1080 source.
@@ -67,8 +82,10 @@ Screenshot SHA-256 receipts:
 
 - Interactive traversal, combat, camera motion, cutscenes, controller/touch/QTE timing, audio,
   game speed, and long-session stability still need to be tested on the exact candidate.
-- The source of the approximately 20 FPS loaded-scene phase still needs CPU/GPU synchronization
-  attribution. The high-output runs rule out simple RTX 3090 saturation.
+- The remaining loaded-scene limit still needs finer attribution inside GPU command processing,
+  especially resource binding, buffer/texture-cache lookup and synchronization, page protection,
+  and pipeline-key lookup. The high-output runs rule out simple RTX 3090 saturation, and the
+  post-budget readback timing no longer supports precise-readback finish as the dominant cost.
 - Whether the guarded v1.00 motion-blur exposure patch improves moving-image clarity without
   artifacts remains unproven.
 - A normal user-requested in-game exit remains to be included in the interactive acceptance run.
