@@ -43,8 +43,10 @@ the roundtrip receipt before cropping one byte.
 
 The output directory is created mode 0700 relative to an opened parent-directory descriptor. Every
 file is created exactly once with `O_EXCL|O_NOFOLLOW`, mode 0600, completely written, synced,
-reopened read-only, parsed, and hashed. Existing output, symlinks, nonregular files, path swaps,
-short writes, or unexpected directory entries are refused.
+reopened read-only, parsed, and hashed. Its creation descriptor remains open until transaction
+commit or cleanup, preventing an unlinked inode from being recycled beneath the same basename;
+the complete device/inode/size/mtime/ctime identity is revalidated. Existing output, symlinks,
+nonregular files, path swaps, short writes, or unexpected directory entries are refused.
 
 On failure, the tool removes only names it created inside that fresh directory and removes the
 directory only if its descriptor identity still matches. It never deletes or overwrites a

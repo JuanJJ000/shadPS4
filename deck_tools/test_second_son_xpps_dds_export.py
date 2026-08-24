@@ -391,24 +391,33 @@ class SecondSonXppsDdsExportTests(unittest.TestCase):
         output = self.root / "replaced-output"
         original_write = dds._write_exclusive
         replaced_name: str | None = None
+        replaced_guard_descriptor: int | None = None
+        guarded_binding: tuple[int, int] | None = None
+        replacement_binding: tuple[int, int] | None = None
 
         def replace_first_output(
             output_fd: int,
             name: str,
             data: bytes,
             created_names: list[str],
-            created_file_identities: dict[str, tuple[int, int]],
+            created_file_identities: dict[str, tuple[int, int, int, int, int]],
+            created_file_guards: dict[str, int],
         ) -> bytes:
-            nonlocal replaced_name
+            nonlocal guarded_binding, replaced_guard_descriptor
+            nonlocal replaced_name, replacement_binding
             observed = original_write(
                 output_fd,
                 name,
                 data,
                 created_names,
                 created_file_identities,
+                created_file_guards,
             )
             if replaced_name is None and name.endswith(".dds"):
                 replaced_name = name
+                replaced_guard_descriptor = created_file_guards[name]
+                guard_info = os.fstat(replaced_guard_descriptor)
+                guarded_binding = (guard_info.st_dev, guard_info.st_ino)
                 os.unlink(name, dir_fd=output_fd)
                 replacement_fd = os.open(
                     name,
@@ -420,6 +429,13 @@ class SecondSonXppsDdsExportTests(unittest.TestCase):
                     os.write(replacement_fd, b"external replacement")
                 finally:
                     os.close(replacement_fd)
+                replacement_info = os.stat(
+                    name, dir_fd=output_fd, follow_symlinks=False
+                )
+                replacement_binding = (
+                    replacement_info.st_dev,
+                    replacement_info.st_ino,
+                )
             return observed
 
         with mock.patch.object(
@@ -428,6 +444,10 @@ class SecondSonXppsDdsExportTests(unittest.TestCase):
             with self.assertRaisesRegex(probe.ProbeError, "path binding changed"):
                 self.export(output)
         self.assertIsNotNone(replaced_name)
+        self.assertIsNotNone(replaced_guard_descriptor)
+        self.assertNotEqual(guarded_binding, replacement_binding)
+        with self.assertRaises(OSError):
+            os.fstat(int(replaced_guard_descriptor))
         self.assertTrue(output.is_dir())
         self.assertEqual(
             (output / str(replaced_name)).read_bytes(), b"external replacement"

@@ -741,7 +741,8 @@ def _write_exclusive(
     name: str,
     data: bytes,
     created_names: list[str],
-    created_file_identities: dict[str, tuple[int, int]],
+    created_file_identities: dict[str, tuple[int, int, int, int, int]],
+    created_file_guards: dict[str, int],
 ) -> bytes:
     if (
         not name
@@ -765,15 +766,21 @@ def _write_exclusive(
             f"cannot create output file exclusively: {error.strerror}"
         ) from error
     created_names.append(name)
+    created_file_guards[name] = file_descriptor
     try:
         created_info = os.fstat(file_descriptor)
         if not stat.S_ISREG(created_info.st_mode):
             raise probe.ProbeError("created output is not a regular file")
-        created_file_identities[name] = (created_info.st_dev, created_info.st_ino)
+        created_file_identities[name] = registry._identity(created_info)
         _write_all(file_descriptor, data)
         os.fsync(file_descriptor)
-    finally:
-        os.close(file_descriptor)
+        created_file_identities[name] = registry._identity(
+            os.fstat(file_descriptor)
+        )
+    except BaseException:
+        # The descriptor remains open as the cleanup authority. Holding it also
+        # prevents an unlinked inode from being recycled beneath the same name.
+        raise
 
     read_flags = (
         os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
@@ -789,10 +796,14 @@ def _write_exclusive(
         if not stat.S_ISREG(info.st_mode) or info.st_size != len(data):
             raise probe.ProbeError("written output has the wrong type or byte size")
         path_info = os.stat(name, dir_fd=output_fd, follow_symlinks=False)
-        if not stat.S_ISREG(path_info.st_mode) or (
-            path_info.st_dev,
-            path_info.st_ino,
-        ) != (info.st_dev, info.st_ino):
+        expected_identity = created_file_identities[name]
+        if (
+            not stat.S_ISREG(path_info.st_mode)
+            or registry._identity(info) != expected_identity
+            or registry._identity(path_info) != expected_identity
+            or registry._identity(os.fstat(created_file_guards[name]))
+            != expected_identity
+        ):
             raise probe.ProbeError("written output path binding changed")
         with os.fdopen(os.dup(read_descriptor), "rb") as stream:
             observed = registry._read_bounded(
@@ -813,11 +824,22 @@ def _cleanup_fresh_output(
     name: str,
     identity: tuple[int, int],
     created_names: list[str],
-    created_file_identities: dict[str, tuple[int, int]],
+    created_file_identities: dict[str, tuple[int, int, int, int, int]],
+    created_file_guards: dict[str, int],
 ) -> str | None:
     failures: list[str] = []
     for created_name in reversed(created_names):
         expected_file_identity = created_file_identities.get(created_name)
+        guard_descriptor = created_file_guards.get(created_name)
+        try:
+            guarded_identity = (
+                registry._identity(os.fstat(guard_descriptor))
+                if guard_descriptor is not None
+                else None
+            )
+        except OSError as error:
+            failures.append(f"cannot inspect guarded {created_name}: {error.strerror}")
+            continue
         try:
             observed = os.stat(created_name, dir_fd=output_fd, follow_symlinks=False)
         except FileNotFoundError:
@@ -826,9 +848,13 @@ def _cleanup_fresh_output(
             failures.append(f"cannot inspect {created_name}: {error.strerror}")
             continue
         if (
-            expected_file_identity is None
+            guarded_identity is None
             or not stat.S_ISREG(observed.st_mode)
-            or (observed.st_dev, observed.st_ino) != expected_file_identity
+            or registry._identity(observed) != guarded_identity
+            or (
+                expected_file_identity is not None
+                and expected_file_identity[:2] != guarded_identity[:2]
+            )
         ):
             failures.append(f"created output binding changed for {created_name}")
             continue
@@ -942,7 +968,8 @@ def export_dds(
     output_name = ""
     output_identity = (0, 0)
     created_names: list[str] = []
-    created_file_identities: dict[str, tuple[int, int]] = {}
+    created_file_identities: dict[str, tuple[int, int, int, int, int]] = {}
+    created_file_guards: dict[str, int] = {}
     manifest: dict[str, object] | None = None
     try:
         with ExitStack() as stack:
@@ -1142,6 +1169,7 @@ def export_dds(
                     dds_data,
                     created_names,
                     created_file_identities,
+                    created_file_guards,
                 )
                 parsed_after_write = _parse_dds(written)
                 if parsed_after_write != parsed_before_write:
@@ -1220,6 +1248,7 @@ def export_dds(
                 manifest_bytes,
                 created_names,
                 created_file_identities,
+                created_file_guards,
             )
             if written_manifest != manifest_bytes:
                 raise probe.ProbeError("written DDS manifest changed")
@@ -1235,7 +1264,11 @@ def export_dds(
                 )
                 if (
                     not stat.S_ISREG(observed.st_mode)
-                    or (observed.st_dev, observed.st_ino) != expected_identity
+                    or registry._identity(observed) != expected_identity
+                    or registry._identity(
+                        os.fstat(created_file_guards[created_name])
+                    )
+                    != expected_identity
                 ):
                     raise probe.ProbeError("created output file path binding changed")
             if not _output_binding_matches(
@@ -1252,6 +1285,7 @@ def export_dds(
                 output_identity,
                 created_names,
                 created_file_identities,
+                created_file_guards,
             )
         if cleanup_error:
             raise probe.ProbeError(
@@ -1259,6 +1293,11 @@ def export_dds(
             ) from error
         raise
     finally:
+        for guard_descriptor in created_file_guards.values():
+            try:
+                os.close(guard_descriptor)
+            except OSError:
+                pass
         if output_fd is not None:
             os.close(output_fd)
         if parent_fd is not None:
