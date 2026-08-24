@@ -20,6 +20,17 @@ Capture two minutes with the default no-early-submit readback policy:
 SECOND_SON_CAPTURE_SECONDS=120 deck_tools/run_second_son_bazzite.sh
 ```
 
+Run the guarded, opt-in 01.00 motion-blur exposure experiment:
+
+```bash
+SECOND_SON_PATCH=deck_tools/second_son_v100_motion_blur.xml \
+  SECOND_SON_CAPTURE_SECONDS=120 deck_tools/run_second_son_bazzite.sh
+```
+
+The launcher refuses that patch unless the complete owned eboot hash, original setter bytes, patch
+identity, title, and app version pass `second_son_v100_patch_guard.py`. Unset `SECOND_SON_PATCH` for
+the unchanged baseline. See `SECOND_SON_V100_MOTION_BLUR.md` for evidence and non-claims.
+
 Run interactively until the emulator exits:
 
 ```bash

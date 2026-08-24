@@ -14,6 +14,7 @@ data_root="${SECOND_SON_BAZZITE_DATA_ROOT:-${repo_dir}/scratch/second-son-bazzit
 capture_seconds="${SECOND_SON_CAPTURE_SECONDS:-120}"
 validate_only="${SECOND_SON_VALIDATE_ONLY:-0}"
 readback_work_budget="${SECOND_SON_READBACK_WORK_BUDGET:-0}"
+patch_xml="${SECOND_SON_PATCH:-}"
 
 if [[ ! "${capture_seconds}" =~ ^(0|[1-9][0-9]*)$ ]]; then
   echo "SECOND_SON_CAPTURE_SECONDS must be zero or a positive integer" >&2
@@ -42,6 +43,14 @@ for required in "${binary}" "${eboot}" "${repo_dir}/deck_tools/second_son_bazzit
     exit 1
   fi
 done
+
+if [[ -n "${patch_xml}" ]]; then
+  if [[ ! -f "${patch_xml}" ]]; then
+    echo "Missing requested Second Son patch: ${patch_xml}" >&2
+    exit 1
+  fi
+  python3 "${repo_dir}/deck_tools/second_son_v100_patch_guard.py" "${eboot}" "${patch_xml}"
+fi
 
 if [[ ! -x "${binary}" ]]; then
   echo "Second Son binary is not executable: ${binary}" >&2
@@ -145,6 +154,12 @@ EOF
   echo "isolated_user_root=${shad_user}"
   echo "capture_seconds=${capture_seconds}"
   echo "precise_readback_work_budget=${readback_work_budget}"
+  if [[ -n "${patch_xml}" ]]; then
+    echo "patch=${patch_xml}"
+    sha256sum "${patch_xml}"
+  else
+    echo "patch=none"
+  fi
   sha256sum "${shad_user}/config.json" "${shad_user}/custom_configs/${title_id}.json" "${shad_user}/input_config/${title_id}.ini"
   uname -a
   lscpu
@@ -164,6 +179,9 @@ if [[ "${validate_only}" == "1" ]]; then
 fi
 
 launch=("${binary}" --game "${eboot}" --same-process --fullscreen true --show-fps)
+if [[ -n "${patch_xml}" ]]; then
+  launch+=(--patch "${patch_xml}")
+fi
 if command -v mangohud >/dev/null 2>&1; then
   launch=(mangohud "${launch[@]}")
 fi
@@ -204,6 +222,11 @@ fi
 title_log="${shad_user}/log/${title_id}.log"
 if [[ -f "${title_log}" ]]; then
   rg -n "Game-specific config used|GPU readbacksMode|GPU vblankFrequency|GPU shouldCopyGPUBuffers|PipelineCache" "${title_log}" >"${run_dir}/evidence/title-config-proof.txt" || true
+fi
+
+if [[ -n "${patch_xml}" ]]; then
+  rg -n "Applied patch: Disable Motion Blur Exposure \(CUSA00223 01\.00\)" "${shad_user}/log" \
+    >"${run_dir}/evidence/patch-application-proof.txt" || true
 fi
 
 if [[ -f "${repo_dir}/deck_tools/summarize_mangohud.py" ]]; then
