@@ -586,10 +586,10 @@ public:
         ControllerOutput(CONTROLLER_TOUCHPAD_SWIPE_DOWN),
         ControllerOutput(CONTROLLER_TOUCHPAD_SWIPE_LEFT),
         ControllerOutput(CONTROLLER_TOUCHPAD_SWIPE_RIGHT),
-        ControllerOutput(SDL_GAMEPAD_BUTTON_DPAD_UP),         // Up
-        ControllerOutput(SDL_GAMEPAD_BUTTON_DPAD_DOWN),       // Down
-        ControllerOutput(SDL_GAMEPAD_BUTTON_DPAD_LEFT),       // Left
-        ControllerOutput(SDL_GAMEPAD_BUTTON_DPAD_RIGHT),      // Right
+        ControllerOutput(SDL_GAMEPAD_BUTTON_DPAD_UP),    // Up
+        ControllerOutput(SDL_GAMEPAD_BUTTON_DPAD_DOWN),  // Down
+        ControllerOutput(SDL_GAMEPAD_BUTTON_DPAD_LEFT),  // Left
+        ControllerOutput(SDL_GAMEPAD_BUTTON_DPAD_RIGHT), // Right
 
         // Axis mappings
         // ControllerOutput(SDL_GAMEPAD_BUTTON_INVALID, SDL_GAMEPAD_AXIS_LEFTX, false),
