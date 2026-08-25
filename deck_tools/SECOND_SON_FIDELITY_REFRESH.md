@@ -132,6 +132,42 @@ No 4K, 8K, or 120 Hz profile is promoted to the normal Steam launch by this rece
   stability remain branch-level acceptance gates. Resource binding and driver work remain the next
   performance-attribution candidates.
 
+## Shared-memory stream reservation — 2026-08-24, 8:10 PM CDT
+
+### RR — Really Readable rundown
+
+#### Proven
+
+- Issue #152 found that the compute SharedMemory descriptor path mapped and zeroed a Stream utility
+  buffer region, then bound it without calling `Commit()`. `Map()` does not advance the ring;
+  `Commit()` advances it, flushes non-coherent writes, and marks the submitted bound.
+- Commit `e54a96d986d885d0c55ca7ed61290c5123980946` enforces `Map → zero → Commit → bind`.
+  Current upstream `main` at `7fb1a530c15415097836521fec6f3483e27c81ae` contains the same
+  original omission.
+- The focused source-contract test passes 1/1, the complete Deck suite passes 143/143, Python byte
+  compilation/Ruff/whitespace pass, the changed Vulkan translation unit compiles, and the complete
+  optimized Linux executable links with `-O2 -g -DNDEBUG`.
+- The exact clean binary has SHA-256
+  `deeaab643a1efc28f44acc03f0602fde7a83f368e86ce2831e0a5075ad47d3aa` and embeds
+  `v.0.18.0-235-ge54a96d9`.
+- Its isolated Second Son smoke preloaded 615 pipelines with zero graphics/compute/guest shader
+  compiles, zero cache regenerations, exit 0, and an unchanged live title profile.
+
+#### Inference
+
+- Missing `Commit()` can alias lowered shared-memory storage with a later reservation before
+  submission and can omit the required flush on a non-coherent host. Restoring the StreamBuffer
+  contract is a correctness fix even when a particular title scene does not enter the fallback.
+
+#### Unknown / next gate
+
+- A temporary, uncommitted first-hit probe recorded zero fallback binds in the 25-second loaded
+  Second Son scene. It was removed, and rebuilding restored the exact clean binary hash above.
+- Other scenes may still exercise the fallback. No Second Son visual, correctness, or performance
+  gain is claimed from this run; interactive traversal/combat/cutscene coverage remains necessary.
+- The public receipt has SHA-256
+  `b8ff529243a228f23df92842dbfcb8d5f781e03d2509c6aabcc622ec133949cc`.
+
 ## Persistent host tiling shader cache — 2026-08-24, 5:31 PM CDT
 
 ### RR — Really Readable rundown
