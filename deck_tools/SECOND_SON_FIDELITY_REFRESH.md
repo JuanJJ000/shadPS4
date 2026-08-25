@@ -94,6 +94,46 @@ Screenshot SHA-256 receipts:
 
 No 4K, 8K, or 120 Hz profile is promoted to the normal Steam launch by this receipt.
 
+## Submission-side stream-bound recorder — 2026-08-24, 8:51 PM CDT
+
+### RR — Really Readable rundown
+
+#### Proven
+
+- Issue #153 moves unchanged stream-bound detection off every high-frequency `StreamBuffer`
+  commit and performs it once when the scheduler assigns the exact Vulkan submission tick. Commit
+  `e7c03042cd426ffed7d3e213226352031f69e462` keeps the coherent commit path inline, preserves the
+  non-coherent flush path, and resets the recorder across ring wrap.
+- The focused stream-watch suite passes 5/5, the atomic-reader-lock suite passes 5/5, the complete
+  Deck suite passes 143/143, whitespace checks pass, and the optimized Linux executable links with
+  `-O2 -g -DNDEBUG`.
+- The exact committed executable has SHA-256
+  `68d12a41294bd56caaf0117c4583f4cae821a58a7303221d1adf3d6508c53f7c` and embeds
+  `v.0.18.0-237-ge7c03042`. Its isolated smoke preloaded 633 pipelines, compiled/regenerated
+  nothing, exited 0, and left the live title profile unchanged.
+- The warm baseline profile captured 1,362 GpuComm samples, with 219 (16.08%) in the old
+  `StreamBuffer::Commit` leaf and 218 at its per-commit bound accumulation. The candidate captured
+  1,373 GpuComm samples with zero in the old Commit, non-coherent slow path, or recorder leaf. Both
+  profiles lost zero samples.
+- Two warm controls averaged 29.07 post-load guest FPS and two candidates averaged 29.57 (+1.72%).
+  Post-load median remained about 30 FPS and p95 remained about 50 ms.
+
+#### Inference
+
+- The measured hot instruction is conclusively absent, and the small FPS direction is consistent
+  with moving bookkeeping to submission. Instrumentation outliers prevent a mean-frame-time or
+  material whole-game throughput claim.
+
+#### Unknown / next gate
+
+- Every runtime measurement above covers only the intro/crash-site workload before the city. City
+  traversal, crowds, combat, smoke/particles, rapid camera movement, cutscenes, and longer play may
+  expose different CPU or GPU limits.
+- NVIDIA driver work, `memcpy`, buffer binding, and a memory-tracker mutex are the next sampled
+  candidates. The mutex needs a repeated exact-revision profile before another code change.
+- The public aggregate receipt has SHA-256
+  `a93bc3cca819ab83cedaa2172bfc9493b3a4fe22599453cb7d831549f75843f1`.
+
 ## Pending stream-bound flag — 2026-08-24, 7:53 PM CDT
 
 ### RR — Really Readable rundown
