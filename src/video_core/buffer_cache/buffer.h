@@ -181,7 +181,12 @@ public:
     std::pair<u8*, u64> Map(u64 size, u64 alignment = 0, bool allow_wait = true);
 
     /// Ensures that reserved bytes of memory are available to the GPU.
-    void Commit();
+    void Commit() {
+        if (!is_coherent) [[unlikely]] {
+            CommitNonCoherent();
+        }
+        offset = mapped_upper_bound;
+    }
 
     /// Maps and commits a memory region with user provided data
     u64 Copy(auto src, size_t size, size_t alignment = 0) {
@@ -200,8 +205,11 @@ public:
 private:
     void OnCommandBufferSubmit(u64 submitted_tick) override;
 
-    /// Records the latest committed bound against an exact command-buffer timeline tick.
-    void RecordPendingWatch(u64 tick);
+    /// Flushes or invalidates the active range when host-visible memory is non-coherent.
+    void CommitNonCoherent();
+
+    /// Records a changed committed bound against an exact command-buffer timeline tick.
+    void RecordCommittedWatch(u64 tick);
 
     /// Increases the amount of watches available.
     void ReserveWatches(std::vector<Detail::StreamBufferWatch>& watches, std::size_t grow_size);
@@ -211,8 +219,10 @@ private:
 
 private:
     u64 offset{};
+    u64 mapped_offset{};
     u64 mapped_size{};
-    Detail::PendingStreamBufferWatch pending_watch;
+    u64 mapped_upper_bound{};
+    Detail::StreamBufferWatchRecorder watch_recorder;
     std::vector<Detail::StreamBufferWatch> current_watches;
     std::size_t current_watch_cursor{};
     std::optional<size_t> invalidation_mark;

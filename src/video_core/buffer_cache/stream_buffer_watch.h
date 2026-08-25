@@ -46,34 +46,27 @@ inline StreamBufferWatchResult RecordStreamBufferWatch(std::span<StreamBufferWat
     return StreamBufferWatchResult::Appended;
 }
 
-class PendingStreamBufferWatch {
+class StreamBufferWatchRecorder {
 public:
-    void Commit() noexcept {
-        if (pending) [[likely]] {
-            return;
-        }
-        pending = true;
-    }
-
-    [[nodiscard]] bool HasPending() const noexcept {
-        return pending;
-    }
-
     std::optional<StreamBufferWatchResult> Record(std::span<StreamBufferWatch> watches,
                                                   std::size_t& cursor, u64 tick,
                                                   u64 upper_bound) noexcept {
-        if (!pending) {
+        if (upper_bound == recorded_upper_bound) {
             return std::nullopt;
         }
         const auto result = RecordStreamBufferWatch(watches, cursor, tick, upper_bound);
         if (result != StreamBufferWatchResult::Full) {
-            pending = false;
+            recorded_upper_bound = upper_bound;
         }
         return result;
     }
 
+    void Reset(u64 upper_bound = 0) noexcept {
+        recorded_upper_bound = upper_bound;
+    }
+
 private:
-    bool pending{};
+    u64 recorded_upper_bound{};
 };
 
 } // namespace VideoCore::Detail
