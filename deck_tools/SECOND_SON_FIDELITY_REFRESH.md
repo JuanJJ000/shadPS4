@@ -94,6 +94,44 @@ Screenshot SHA-256 receipts:
 
 No 4K, 8K, or 120 Hz profile is promoted to the normal Steam launch by this receipt.
 
+## Pending stream-bound flag — 2026-08-24, 7:53 PM CDT
+
+### RR — Really Readable rundown
+
+#### Proven
+
+- Issue #151 follows the submit-boundary change by removing the duplicate 64-bit pending-bound
+  store from every stream-buffer commit. Commit
+  `fbc64ee1a7a0aaf76aa3d300a6739ed7e4f71a9a` keeps the StreamBuffer offset authoritative and
+  stores only whether unsubmitted data exists.
+- Candidate assembly retains the authoritative offset store, tests the pending flag, and writes
+  the flag only for the first commit before a submission. The duplicate upper-bound store is gone.
+- The focused lock/watch suite passes 9/9, the complete Deck suite passes 142/142, and the optimized
+  Linux executable links. The candidate smoke/profile exits 0, preloads 696 pipelines, compiles
+  and regenerates nothing, and leaves the live title profile unchanged.
+- A warmed candidate-control-candidate-control bracket averaged 29.695 versus 29.205 post-load FPS
+  (+1.68%) and 36.250 versus 36.840 ms mean frame time (-1.60%). Final-ten-second averages were
+  28.010 versus 27.890 FPS (+0.43%) and 36.660 versus 36.845 ms (-0.50%); p95 remained effectively
+  neutral near 50 ms.
+- The candidate executable has SHA-256
+  `a6b8796cfafe00307218763b0f12616cbd60fa9cf8e896eee8de514113047f95`. The public aggregate
+  receipt has SHA-256 `348f3eca7024fe6e36abfd531ae1b251bfbefc5b29b46f1ae3e477f7a3a26570`.
+
+#### Inference
+
+- Both alternating candidate legs beat their adjacent controls after load, and the redundant
+  stores are absent. The small movement is consistent with reduced hot-path bookkeeping but does
+  not support a material throughput claim.
+
+#### Unknown / next gate
+
+- Hardware-cycle sampling attributes 374/2,518 GpuComm samples (14.85%) to the shorter pending-flag
+  branch versus 345/2,511 (13.74%) at the old pending-bound store. No profiler-residency gain is
+  claimed.
+- Interactive traversal, combat, controller/touch/QTE behavior, audio, game speed, and long-session
+  stability remain branch-level acceptance gates. Resource binding and driver work remain the next
+  performance-attribution candidates.
+
 ## Persistent host tiling shader cache — 2026-08-24, 5:31 PM CDT
 
 ### RR — Really Readable rundown
