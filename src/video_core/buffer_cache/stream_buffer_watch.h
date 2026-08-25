@@ -48,8 +48,10 @@ inline StreamBufferWatchResult RecordStreamBufferWatch(std::span<StreamBufferWat
 
 class PendingStreamBufferWatch {
 public:
-    void Commit(u64 upper_bound_) noexcept {
-        upper_bound = upper_bound_;
+    void Commit() noexcept {
+        if (pending) [[likely]] {
+            return;
+        }
         pending = true;
     }
 
@@ -58,7 +60,8 @@ public:
     }
 
     std::optional<StreamBufferWatchResult> Record(std::span<StreamBufferWatch> watches,
-                                                  std::size_t& cursor, u64 tick) noexcept {
+                                                  std::size_t& cursor, u64 tick,
+                                                  u64 upper_bound) noexcept {
         if (!pending) {
             return std::nullopt;
         }
@@ -70,7 +73,6 @@ public:
     }
 
 private:
-    u64 upper_bound{};
     bool pending{};
 };
 

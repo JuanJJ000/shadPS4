@@ -192,13 +192,13 @@ void StreamBuffer::OnCommandBufferSubmit(u64 submitted_tick) {
 }
 
 void StreamBuffer::RecordPendingWatch(u64 tick) {
-    auto result = pending_watch.Record(current_watches, current_watch_cursor, tick);
+    auto result = pending_watch.Record(current_watches, current_watch_cursor, tick, offset);
     if (!result || *result != Detail::StreamBufferWatchResult::Full) {
         return;
     }
 
     ReserveWatches(current_watches, WATCHES_RESERVE_CHUNK);
-    result = pending_watch.Record(current_watches, current_watch_cursor, tick);
+    result = pending_watch.Record(current_watches, current_watch_cursor, tick, offset);
     ASSERT(result && *result == Detail::StreamBufferWatchResult::Appended);
 }
 
@@ -251,7 +251,7 @@ void StreamBuffer::Commit() {
     }
 
     offset += mapped_size;
-    pending_watch.Commit(offset);
+    pending_watch.Commit();
 }
 
 void StreamBuffer::ReserveWatches(std::vector<Detail::StreamBufferWatch>& watches,
