@@ -9,6 +9,30 @@ This is the living record for the local Steam Deck-focused shadPS4 fork. An item
 improvement until it has been measured on the user's own legally dumped game in a visible Gamescope
 session.
 
+## Submit-boundary stream-watch batching — issue #150 — 2026-08-24
+
+### RR — Really Readable rundown
+
+- **What happened — Proven:** a runtime census found that 99.69% of sampled stream-buffer commits
+  and 90.75% of sampled upload-buffer commits extended an existing watch within the same command
+  buffer. Commit `0155d645` now defers each stream buffer's final bound until the scheduler assigns
+  the exact submission tick, while preserving an early record at ring-buffer wrap.
+- **What it means — Proven:** the per-commit `CurrentTick()` atomic read and watch-vector access are
+  gone. The exact hardware-cycle profile contains neither old leaf; the remaining concentrated leaf
+  is the two-field pending-bound store. The focused lock/watch suites pass 9/9, the existing Deck
+  suite passes 142/142, the portable optimized Linux target builds, and the exact-commit title run
+  exits 0 with 696 preloaded pipelines and no compilation or regeneration.
+- **Performance boundary — Proven:** the alternating warmed bracket averaged 29.40 versus 29.16
+  post-load FPS (+0.82%) and 28.27 versus 28.15 tail FPS (+0.43%). Tail mean frame time improved
+  from 36.42 to 36.24 ms (-0.49%), while p95 remained 50.00 ms. This is retained as a bounded CPU
+  efficiency change; the small FPS movement is not a material throughput claim.
+- **Why — Inference:** millions of same-command-buffer commits no longer repeat scheduler and
+  vector bookkeeping that can be done once at submission. The settled frame-time result is
+  directionally consistent but remains close to run variance.
+- **What happens next — Unknown:** the remaining simple pending-bound store is still a concentrated
+  sampling leaf. Resource binding, driver work, traversal, combat, long-session, controller/QTE,
+  audio, game-speed, and texture activation remain open.
+
 ## Stream-watch cursor correction — issue #149 — 2026-08-24
 
 ### RR — Really Readable rundown
