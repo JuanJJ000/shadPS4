@@ -5,11 +5,30 @@ SPDX-License-Identifier: GPL-2.0-or-later
 
 # inFAMOUS Second Son Bazzite handoff
 
-Checkpoint: **2026-08-24, 8:51 PM CDT**
+Checkpoint: **2026-08-24, 9:05 PM CDT**
 
 This is the public resume authority for the Second Son Bazzite/RTX 3090 lane. It records what is
 actually proven, what is merely promising, and the shortest safe continuation path. It contains no
 owned game bytes, save data, pipeline/shader contents, virtual addresses, or private host paths.
+
+## Paused objective — preserve intact for later pickup
+
+**Status:** execution was stopped by the owner on 2026-08-24. The objective below is unfinished,
+must not be represented as achieved, and must not resume automatically. A later session may pick it
+up only when the owner explicitly asks.
+
+> Own and continuously improve inFAMOUS Second Son emulation and modding on this Bazzite/RTX 3090
+> system using the deck-oriented `deucebucket/shadPS4` repository, not the decomp repository. Keep a
+> dedicated Second Son branch; preserve and integrate the synthetic spray/swipe controller fixes;
+> reproduce and fix performance, rendering, and input issues with local Linux-only tests and the
+> correct title-specific configuration; track every verified defect through GitHub
+> issues/branches/commits/PRs; investigate safe texture and gameplay modding workflows; and iterate
+> until the game is exceptionally smooth, sharp, stable, controller-complete, and easy to mod
+> without lowering visual quality.
+
+Success still requires representative city traversal/combat/particles, exact Steam-runtime
+deployment, complete controller/touch/QTE acceptance, long-session stability, and a visible
+reversible texture-mod proof. The intro-only results in this handoff do not satisfy that objective.
 
 ## RR — Really Readable rundown
 
