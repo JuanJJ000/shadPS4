@@ -180,6 +180,26 @@ StreamBuffer::StreamBuffer(const Vulkan::Instance& instance, Vulkan::Scheduler& 
     const auto device = instance.GetDevice();
     Vulkan::SetObjectName(device, Handle(), "StreamBuffer({}):{:#x}", BufferTypeName(usage),
                           size_bytes);
+    scheduler.RegisterSubmitObserver(*this);
+}
+
+StreamBuffer::~StreamBuffer() {
+    scheduler->UnregisterSubmitObserver(*this);
+}
+
+void StreamBuffer::OnCommandBufferSubmit(u64 submitted_tick) {
+    RecordPendingWatch(submitted_tick);
+}
+
+void StreamBuffer::RecordPendingWatch(u64 tick) {
+    auto result = pending_watch.Record(current_watches, current_watch_cursor, tick);
+    if (!result || *result != Detail::StreamBufferWatchResult::Full) {
+        return;
+    }
+
+    ReserveWatches(current_watches, WATCHES_RESERVE_CHUNK);
+    result = pending_watch.Record(current_watches, current_watch_cursor, tick);
+    ASSERT(result && *result == Detail::StreamBufferWatchResult::Appended);
 }
 
 std::pair<u8*, u64> StreamBuffer::Map(u64 size, u64 alignment, bool allow_wait) {
@@ -198,6 +218,9 @@ std::pair<u8*, u64> StreamBuffer::Map(u64 size, u64 alignment, bool allow_wait) 
     }
 
     if (offset + size > this->size_bytes) {
+        // Preserve the current command buffer's final bound before swapping the watch arrays.
+        RecordPendingWatch(scheduler->CurrentTick());
+
         // The buffer would overflow, save the amount of used watches and reset the state.
         invalidation_mark = current_watch_cursor;
         current_watch_cursor = 0;
@@ -228,16 +251,7 @@ void StreamBuffer::Commit() {
     }
 
     offset += mapped_size;
-    const u64 current_tick = scheduler->CurrentTick();
-    auto result = Detail::RecordStreamBufferWatch(current_watches, current_watch_cursor,
-                                                  current_tick, offset);
-    if (result == Detail::StreamBufferWatchResult::Full) {
-        // Ensure that there are enough watches.
-        ReserveWatches(current_watches, WATCHES_RESERVE_CHUNK);
-        result = Detail::RecordStreamBufferWatch(current_watches, current_watch_cursor,
-                                                 current_tick, offset);
-        ASSERT(result == Detail::StreamBufferWatchResult::Appended);
-    }
+    pending_watch.Commit(offset);
 }
 
 void StreamBuffer::ReserveWatches(std::vector<Detail::StreamBufferWatch>& watches,

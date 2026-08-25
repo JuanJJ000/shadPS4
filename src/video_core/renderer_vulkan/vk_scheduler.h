@@ -7,12 +7,14 @@
 #include <mutex>
 #include <thread>
 #include <queue>
+#include <vector>
 
 #include "common/unique_function.h"
 #include "video_core/amdgpu/regs_color.h"
 #include "video_core/amdgpu/regs_primitive.h"
 #include "video_core/renderer_vulkan/vk_master_semaphore.h"
 #include "video_core/renderer_vulkan/vk_resource_pool.h"
+#include "video_core/renderer_vulkan/vk_submit_observer.h"
 
 namespace tracy {
 class VkCtxScope;
@@ -446,6 +448,13 @@ public:
         return master_semaphore.CurrentTick();
     }
 
+    /// Registers an observer owned by the command-recording context. Registration changes must
+    /// not race command submission.
+    void RegisterSubmitObserver(SubmitObserver& observer);
+
+    /// Removes a previously registered submission observer.
+    void UnregisterSubmitObserver(SubmitObserver& observer);
+
     /// Returns true when a tick has been triggered by the GPU.
     [[nodiscard]] bool IsFree(u64 tick) noexcept {
         if (master_semaphore.IsFree(tick)) {
@@ -494,6 +503,7 @@ private:
     CommandPool command_pool;
     DynamicState dynamic_state;
     vk::CommandBuffer current_cmdbuf;
+    std::vector<SubmitObserver*> submit_observers;
     std::condition_variable_any event_cv;
     struct PendingOp {
         Common::UniqueFunction<void> callback;

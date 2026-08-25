@@ -4,6 +4,7 @@
 #pragma once
 
 #include <cstddef>
+#include <optional>
 #include <span>
 
 #include "common/types.h"
@@ -44,5 +45,33 @@ inline StreamBufferWatchResult RecordStreamBufferWatch(std::span<StreamBufferWat
     };
     return StreamBufferWatchResult::Appended;
 }
+
+class PendingStreamBufferWatch {
+public:
+    void Commit(u64 upper_bound_) noexcept {
+        upper_bound = upper_bound_;
+        pending = true;
+    }
+
+    [[nodiscard]] bool HasPending() const noexcept {
+        return pending;
+    }
+
+    std::optional<StreamBufferWatchResult> Record(std::span<StreamBufferWatch> watches,
+                                                  std::size_t& cursor, u64 tick) noexcept {
+        if (!pending) {
+            return std::nullopt;
+        }
+        const auto result = RecordStreamBufferWatch(watches, cursor, tick, upper_bound);
+        if (result != StreamBufferWatchResult::Full) {
+            pending = false;
+        }
+        return result;
+    }
+
+private:
+    u64 upper_bound{};
+    bool pending{};
+};
 
 } // namespace VideoCore::Detail

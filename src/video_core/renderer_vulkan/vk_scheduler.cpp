@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright 2025 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <algorithm>
 #include <chrono>
 #include <limits>
 
@@ -26,9 +27,28 @@ Scheduler::Scheduler(const Instance& instance)
 }
 
 Scheduler::~Scheduler() {
+    ASSERT(submit_observers.empty());
 #if TRACY_GPU_ENABLED
     std::free(profiler_scope);
 #endif
+}
+
+void Scheduler::RegisterSubmitObserver(SubmitObserver& observer) {
+    const auto it = std::ranges::find(submit_observers, &observer);
+    ASSERT(it == submit_observers.end());
+    if (it != submit_observers.end()) {
+        return;
+    }
+    submit_observers.push_back(&observer);
+}
+
+void Scheduler::UnregisterSubmitObserver(SubmitObserver& observer) {
+    const auto it = std::ranges::find(submit_observers, &observer);
+    ASSERT(it != submit_observers.end());
+    if (it == submit_observers.end()) {
+        return;
+    }
+    submit_observers.erase(it);
 }
 
 void Scheduler::BeginRendering(const RenderState& new_state) {
@@ -375,6 +395,9 @@ void Scheduler::BeginCommandBufferTiming() {
 void Scheduler::SubmitExecution(SubmitInfo& info) {
     std::scoped_lock lk{submit_mutex};
     const u64 signal_value = master_semaphore.NextTick();
+    for (SubmitObserver* observer : submit_observers) {
+        observer->OnCommandBufferSubmit(signal_value);
+    }
     if (command_buffer_timing_current_slot != InvalidCommandBufferTimingSlot) {
         command_buffer_timing_slots[command_buffer_timing_current_slot].gpu_tick = signal_value;
     }
