@@ -151,6 +151,102 @@ void GameController::SetMotionOverride(s8 mode) {
     }
 }
 
+void GameController::StartQTEBypass() {
+    std::lock_guard lock{m_state_mutex};
+    const u64 timestamp = Libraries::Kernel::sceKernelGetProcessTime();
+    qte_bypass_active = true;
+    qte_bypass_start = timestamp;
+    qte_bypass_phase = 0;
+    g_qte_bypass_active = true;
+    ApplyQTEBypassLocked(timestamp);
+    PushStateLocked(timestamp);
+    LOG_INFO(Input, "Controller QTE bypass started");
+}
+
+void GameController::StopQTEBypass() {
+    std::lock_guard lock{m_state_mutex};
+    if (!qte_bypass_active) {
+        return;
+    }
+    qte_bypass_active = false;
+    qte_bypass_start = 0;
+    qte_bypass_phase = 0;
+    g_qte_bypass_active = false;
+    m_state.touchpad[0].state = false;
+    m_state.touchpad[1].state = false;
+    m_touch_down_timestamp = 0;
+    PushStateLocked();
+    LOG_INFO(Input, "Controller QTE bypass stopped");
+}
+
+void GameController::ApplyQTEBypassLocked(u64 timestamp) {
+    if (!qte_bypass_active) {
+        return;
+    }
+
+    constexpr u64 QTEBypassPhaseDuration = 200'000;
+    const u64 elapsed = timestamp >= qte_bypass_start ? timestamp - qte_bypass_start : 0;
+    const int total_phases = 8;
+    qte_bypass_phase = static_cast<int>((elapsed / QTEBypassPhaseDuration) % total_phases);
+
+    m_state.buttonsState |= OrbisPadButtonDataOffset::Cross |
+                            OrbisPadButtonDataOffset::Square |
+                            OrbisPadButtonDataOffset::Circle |
+                            OrbisPadButtonDataOffset::Triangle |
+                            OrbisPadButtonDataOffset::R2 |
+                            OrbisPadButtonDataOffset::TouchPad;
+
+    constexpr u16 pad_center_x = 960;
+    constexpr u16 pad_center_y = 472;
+    constexpr u16 pad_near = 140;
+    constexpr u16 pad_far = 800;
+
+    float x0 = static_cast<float>(pad_center_x);
+    float y0 = static_cast<float>(pad_center_y);
+    float x1 = static_cast<float>(pad_center_x);
+    float y1 = static_cast<float>(pad_center_y);
+
+    switch (qte_bypass_phase) {
+    case 0:
+        x1 = static_cast<float>(pad_near);
+        break;
+    case 1:
+        x1 = static_cast<float>(pad_far);
+        break;
+    case 2:
+        x0 = static_cast<float>(pad_near);
+        break;
+    case 3:
+        x0 = static_cast<float>(pad_far);
+        break;
+    case 4:
+        y1 = static_cast<float>(pad_near);
+        break;
+    case 5:
+        y1 = static_cast<float>(pad_far);
+        break;
+    case 6:
+        y0 = static_cast<float>(pad_near);
+        break;
+    case 7:
+        y0 = static_cast<float>(pad_far);
+        break;
+    }
+
+    m_state.touchpad[0].ID = 1;
+    m_state.touchpad[0].state = true;
+    m_state.touchpad[0].x = static_cast<u16>(x0);
+    m_state.touchpad[0].y = static_cast<u16>(y0);
+    m_state.touchpad[1].ID = 2;
+    m_state.touchpad[1].state = true;
+    m_state.touchpad[1].x = static_cast<u16>(x1);
+    m_state.touchpad[1].y = static_cast<u16>(y1);
+
+    if (m_touch_down_timestamp == 0) {
+        m_touch_down_timestamp = timestamp;
+    }
+}
+
 void GameController::StartSprayAssist() {
     std::lock_guard lock{m_state_mutex};
     const u64 timestamp = Libraries::Kernel::sceKernelGetProcessTime();
@@ -189,6 +285,7 @@ void GameController::PollState() {
     std::lock_guard lock{m_state_mutex};
     const u64 timestamp = Libraries::Kernel::sceKernelGetProcessTime();
     ApplyMotionInputLocked(timestamp);
+    ApplyQTEBypassLocked(timestamp);
     ApplyTouchpadSwipeLocked(timestamp);
     PushStateLocked(timestamp);
 }
@@ -257,6 +354,10 @@ void GameController::DisconnectController() {
     spray_assist_active = false;
     touchpad_swipe_start = 0;
     touchpad_swipe_active = false;
+    qte_bypass_active = false;
+    qte_bypass_start = 0;
+    qte_bypass_phase = 0;
+    g_qte_bypass_active = false;
     motion_override = 0;
     m_next_touch_id = 1;
     m_touch_down_timestamp = 0;

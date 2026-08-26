@@ -58,6 +58,7 @@
 #define CONTROLLER_TOUCHPAD_SWIPE_DOWN 0x10000000
 #define CONTROLLER_TOUCHPAD_SWIPE_LEFT 0x20000000
 #define CONTROLLER_TOUCHPAD_SWIPE_RIGHT 0x40000000
+#define CONTROLLER_QTE_BYPASS 0x80000000u
 
 #define HOTKEY_FULLSCREEN 0xf0000001
 #define HOTKEY_PAUSE 0xf0000002
@@ -167,6 +168,7 @@ const std::map<std::string, u32> string_to_cbutton_map = {
     {"controller_touchpad_swipe_down", CONTROLLER_TOUCHPAD_SWIPE_DOWN},
     {"controller_touchpad_swipe_left", CONTROLLER_TOUCHPAD_SWIPE_LEFT},
     {"controller_touchpad_swipe_right", CONTROLLER_TOUCHPAD_SWIPE_RIGHT},
+    {"controller_qte_bypass", CONTROLLER_QTE_BYPASS},
     {"qam", SDL_GAMEPAD_BUTTON_MISC1},
     {"r4", SDL_GAMEPAD_BUTTON_RIGHT_PADDLE1},
     {"l4", SDL_GAMEPAD_BUTTON_LEFT_PADDLE1},
@@ -586,6 +588,7 @@ public:
         ControllerOutput(CONTROLLER_TOUCHPAD_SWIPE_DOWN),
         ControllerOutput(CONTROLLER_TOUCHPAD_SWIPE_LEFT),
         ControllerOutput(CONTROLLER_TOUCHPAD_SWIPE_RIGHT),
+        ControllerOutput(CONTROLLER_QTE_BYPASS),
         ControllerOutput(SDL_GAMEPAD_BUTTON_DPAD_UP),    // Up
         ControllerOutput(SDL_GAMEPAD_BUTTON_DPAD_DOWN),  // Down
         ControllerOutput(SDL_GAMEPAD_BUTTON_DPAD_LEFT),  // Left

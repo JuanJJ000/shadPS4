@@ -4,6 +4,7 @@
 #pragma once
 
 #include <array>
+#include <atomic>
 #include <mutex>
 #include <optional>
 #include <utility>
@@ -16,6 +17,8 @@
 #include "core/libraries/system/userservice.h"
 
 namespace Input {
+
+inline std::atomic<bool> g_qte_bypass_active{false};
 
 enum class Axis {
     LeftX = 0,
@@ -107,6 +110,9 @@ public:
     void SetMotionOverride(s8 mode);
     void StartSprayAssist();
     void StartTouchpadSwipe(TouchpadSwipeDirection direction);
+    void StartQTEBypass();
+    void StopQTEBypass();
+    bool IsQTEBypassActive() const { return qte_bypass_active; }
     void PollState();
     void ResetOrientation();
     void SetLightBarRGB(u8 const r, u8 const g, u8 const b);
@@ -124,6 +130,7 @@ private:
     // m_state_mutex must be held by the caller.
     void ApplyMotionInputLocked(u64 timestamp);
     void ApplyTouchpadSwipeLocked(u64 timestamp);
+    void ApplyQTEBypassLocked(u64 timestamp);
     void FinishSprayAssistLocked(u64 timestamp);
     void PushStateLocked(u64 timestamp = 0);
     void UpdateOrientationLocked(u64 timestamp);
@@ -142,6 +149,9 @@ private:
     u64 touchpad_swipe_start{};
     TouchpadSwipeDirection touchpad_swipe_direction{TouchpadSwipeDirection::Up};
     bool touchpad_swipe_active{};
+    bool qte_bypass_active{};
+    u64 qte_bypass_start{};
+    int qte_bypass_phase{};
 
     State m_state;
 

@@ -14,6 +14,7 @@
 #include "core/emulator_state.h"
 #include "imgui/imgui_std.h"
 #include "imgui_internal.h"
+#include "input/controller.h"
 #include "options.h"
 #include "video_core/renderer_vulkan/vk_presenter.h"
 #include "widget/frame_dump.h"
@@ -405,6 +406,19 @@ void L::Draw() {
         ImVec2 pos = ImVec2(10, 10);
         ImU32 color = IM_COL32(255, 255, 255, 255);
         ImGui::GetForegroundDrawList()->AddText(pos, color, "Emulation Paused");
+    }
+
+    if (Input::g_qte_bypass_active.load(std::memory_order_relaxed)) {
+        ImVec2 vp = ImGui::GetMainViewport()->Size;
+        const char* text = "QTE BYPASS ACTIVE";
+        ImVec2 text_size = ImGui::CalcTextSize(text);
+        float padding = 8.0f;
+        ImVec2 bg_min(vp.x - text_size.x - padding * 2, 10.0f);
+        ImVec2 bg_max(vp.x - 10.0f, 10.0f + text_size.y + padding * 2);
+        ImGui::GetForegroundDrawList()->AddRectFilled(bg_min, bg_max, IM_COL32(0, 0, 0, 160), 4.0f);
+        ImGui::GetForegroundDrawList()->AddText(
+            ImVec2(vp.x - text_size.x - padding, 10.0f + padding),
+            IM_COL32(0, 255, 100, 255), text);
     }
 
     if (show_simple_fps) {

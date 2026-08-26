@@ -849,6 +849,17 @@ void ControllerOutput::FinalizeUpdate(u8 gamepad_index) {
                 controller->StartTouchpadSwipe(TouchpadSwipeDirection::Right);
             }
             break;
+        case CONTROLLER_QTE_BYPASS:
+            if (new_button_state) {
+                if (!controller->IsQTEBypassActive()) {
+                    controller->StartQTEBypass();
+                }
+            } else {
+                if (controller->IsQTEBypassActive()) {
+                    controller->StopQTEBypass();
+                }
+            }
+            break;
         default: // is a normal key (hopefully)
             controller->Button(SDLGamepadToOrbisButton(button), new_button_state);
             break;
